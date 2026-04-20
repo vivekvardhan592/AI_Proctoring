@@ -1,0 +1,35 @@
+/* ============================================= */
+/* 1. TAILWIND MUST BE FIRST - DO NOT MOVE IT   */
+/* ============================================= */
+@import "tailwindcss";
+
+/* ============================================= */
+/* 2. Google Fonts - Must come AFTER Tailwind   */
+/* ============================================= */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+/* ============================================= */
+/* 3. Custom Styles                             */
+/* ============================================= */
+
+body {
+  font-family: 'Inter', system_ui, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+/* Smooth scrollbar for main content */
+main::-webkit-scrollbar {
+  width: 6px;
+}
+
+main::-webkit-scrollbar-thumb {
+  background-color: #64748b;
+  border-radius: 20px;
+}
+
+main::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
+}
