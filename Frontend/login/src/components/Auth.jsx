@@ -106,7 +106,7 @@ const Auth = () => {
     }
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(import.meta.env.VITE_API_URL + "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,7 +196,7 @@ const Auth = () => {
       return;
     }
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(import.meta.env.VITE_API_URL + "/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -247,7 +247,7 @@ const Auth = () => {
       return;
     }
     try {
-      const res = await fetch("/api/auth/forgot-password", {
+      const res = await fetch(import.meta.env.VITE_API_URL + "/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail.trim() }),
@@ -289,7 +289,7 @@ const Auth = () => {
     setForgotLoading(true);
 
     try {
-      const res = await fetch("/api/auth/reset-password", {
+      const res = await fetch(import.meta.env.VITE_API_URL + "/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail.trim(), otp: resetOtp, newPassword: sanitizeInput(resetNewPassword.trim()) }),
