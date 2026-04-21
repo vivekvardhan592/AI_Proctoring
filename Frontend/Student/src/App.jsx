@@ -1,12 +1,14 @@
 // src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import StudentDashboard from './pages/StudentDashboard';
-import UpcomingExams from './pages/UpcomingExams';
-import MyResults from './pages/MyResult';
-import ReviewResult from './pages/ReviewResult';
-import Profile from './pages/Profile';
-import ExamPage from './pages/ExamPage';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
+
+// Dynamically import pages (Code Splitting) to reduce initial bundle size
+const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
+const UpcomingExams = lazy(() => import('./pages/UpcomingExams'));
+const MyResults = lazy(() => import('./pages/MyResult'));
+const ReviewResult = lazy(() => import('./pages/ReviewResult'));
+const Profile = lazy(() => import('./pages/Profile'));
+const ExamPage = lazy(() => import('./pages/ExamPage'));
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requireVerification = false }) => {
@@ -84,16 +86,18 @@ function App(){
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-      <Routes>
-        <Route path="/" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
-        <Route path="/student/dashboard" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
-        <Route path="/upcomingexams" element={<ProtectedRoute requireVerification={true}><UpcomingExams /></ProtectedRoute>} />
-        <Route path="/MyResult" element={<ProtectedRoute requireVerification={true}><MyResults/></ProtectedRoute>} />
-        <Route path="/review/:sessionId" element={<ProtectedRoute requireVerification={true}><ReviewResult /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-        <Route path="/exam/:examId" element={<ProtectedRoute requireVerification={true}><ExamPage /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<div className="flex justify-center items-center h-full pt-20"><div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div></div>}>
+        <Routes>
+          <Route path="/" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
+          <Route path="/student/dashboard" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
+          <Route path="/upcomingexams" element={<ProtectedRoute requireVerification={true}><UpcomingExams /></ProtectedRoute>} />
+          <Route path="/MyResult" element={<ProtectedRoute requireVerification={true}><MyResults/></ProtectedRoute>} />
+          <Route path="/review/:sessionId" element={<ProtectedRoute requireVerification={true}><ReviewResult /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/exam/:examId" element={<ProtectedRoute requireVerification={true}><ExamPage /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </div>
   );
 }

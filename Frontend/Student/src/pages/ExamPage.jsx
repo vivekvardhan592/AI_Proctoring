@@ -317,6 +317,21 @@ const getFaceDescriptor = async (imgSrc) => {
 
   }, []);
 
+  // ✅ NEW LISTENER FOR LATE-JOIN ADMINS
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const handleAdminRequest = () => {
+      if (sessionIdRef.current && streamRef.current) {
+         console.log("Admin requested stream, renegotiating...");
+         startStreaming();
+      }
+    };
+
+    socketRef.current.on('request-webrtc-offer', handleAdminRequest);
+    return () => socketRef.current.off('request-webrtc-offer', handleAdminRequest);
+  }, []);
+
     // Admin termination
     useEffect(() => {
       if (sessionId && socketRef.current) {
@@ -969,12 +984,23 @@ await fetch(import.meta.env.VITE_API_URL + "/api/sessions/pre-check-violation", 
   // 📡 WEBRTC STREAMING (student → admin)
   const startStreaming = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
+      const stream = streamRef.current; // 🔥 Re-use the existing camera stream to avoid browser locks!
+      if (!stream) {
+         console.warn("Cannot start streaming without an active camera stream.");
+         return;
+      }
 
-      const peer = new RTCPeerConnection();
+      // Close previous connection if this is a renegotiation (Admin joined late)
+      if (peerRef.current) {
+          peerRef.current.close();
+      }
+
+      const peer = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
       peerRef.current = peer;
 
       stream.getTracks().forEach(track => {

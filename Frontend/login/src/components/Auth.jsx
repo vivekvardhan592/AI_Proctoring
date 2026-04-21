@@ -136,7 +136,7 @@ const Auth = () => {
             data.data.role === "admin"
               ? import.meta.env.VITE_ADMIN_URL + authParams
               : import.meta.env.VITE_STUDENT_URL + authParams;
-        }, 1200);
+        }, 300);
       }
     } catch (err) {
       setLoginError("Network error. Is the backend running?");
@@ -223,7 +223,7 @@ const Auth = () => {
           setToggled(false);
           setRegSuccess("");
           setRegRole("student"); // Reset role after successful registration
-        }, 1800);
+        }, 300);
       }
     } catch (err) {
       setRegError("Network error. Is the backend server running?");
@@ -309,7 +309,7 @@ const Auth = () => {
           setResetNewPassword("");
           setConfirmNewPassword("");
           setForgotMsg("");
-        }, 2000);
+        }, 800);
       }
     } catch (err) {
       setForgotError("Network error. Is the backend server running?");

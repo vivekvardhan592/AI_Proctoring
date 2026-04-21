@@ -52,6 +52,9 @@ const userSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
+// Optimize querying for Admin's student list
+userSchema.index({ institution: 1, role: 1 });
+
 // Hash password before saving
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();

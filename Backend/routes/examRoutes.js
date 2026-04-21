@@ -12,11 +12,13 @@ const { protect, authorize } = require('../middleware/auth');
 // All routes below require authentication
 router.use(protect);
 
+const { routeCache } = require('../middleware/redisCache');
+
 // GET  /api/exams         — any authenticated user
 // POST /api/exams         — admin only
 router
     .route('/')
-    .get(getAllExams)
+    .get(routeCache('exams', 60), getAllExams)
     .post(authorize('admin'), createExam);
 
 // GET    /api/exams/:id   — any authenticated user

@@ -4,13 +4,15 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
+const { connectRedis } = require('./config/redis');
 const errorHandler = require('./middleware/errorHandler');
 
 // Load env vars
 dotenv.config();
 
-// Connect to MongoDB
+// Connect to MongoDB & Redis
 connectDB();
+connectRedis();
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',')
@@ -83,6 +85,11 @@ io.on('connection', (socket) => {
     } else {
       socket.broadcast.emit('webrtc-ice-candidate', { candidate, sessionId, from: socket.id });
     }
+  });
+
+  // 🎥 RE-REQUEST OFFER (admin late join)
+  socket.on('request-webrtc-offer', () => {
+    socket.broadcast.emit('request-webrtc-offer', { adminId: socket.id });
   });
 
 });

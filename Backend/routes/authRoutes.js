@@ -25,7 +25,8 @@ router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 
 // GET /api/auth/students — admin only
-router.get('/students', protect, authorize('admin'), getStudents);
+const { routeCache } = require('../middleware/redisCache');
+router.get('/students', protect, authorize('admin'), routeCache('students', 60), getStudents);
 
 // DELETE /api/auth/student/:id — admin only
 router.delete('/student/:id', protect, authorize('admin'), deleteUser);

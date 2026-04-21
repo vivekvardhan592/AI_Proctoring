@@ -38,6 +38,9 @@ useEffect(() => {
 
   socketRef.current.emit('join', { role: 'admin' });
 
+  // 📡 Ping all active students to send their video feeds just in case they started before you logged in!
+  socketRef.current.emit('request-webrtc-offer');
+
   socketRef.current.on('session-live-update', (updatedSession) => {
      setSessions(prev => {
         if (updatedSession.status !== 'ongoing') {
