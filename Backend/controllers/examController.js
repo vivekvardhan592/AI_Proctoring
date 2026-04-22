@@ -37,9 +37,12 @@ const getAllExams = async (req, res, next) => {
             query.institution = req.user.institution;
         }
 
+        // ⚡ Exclude questions[] — it's a huge array only needed in getExamById
         const exams = await Exam.find(query)
-            .populate('createdBy', 'name email')
-            .sort({ createdAt: -1 });
+            .select('-questions')     // 🔥 skip heavy question data in list views
+            .populate('createdBy', 'name')
+            .sort({ createdAt: -1 })
+            .lean();                  // ⚡ plain JS objects, faster serialization
 
         res.status(200).json({ success: true, count: exams.length, data: exams });
     } catch (error) {

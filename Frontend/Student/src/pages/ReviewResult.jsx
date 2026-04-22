@@ -36,6 +36,7 @@ export default function ReviewResult() {
   }, [sessionId, token]);
 
   const getStudentAnswer = (questionId) => {
+    if (!session || !session.answers) return null; // FIX: null guard
     const ans = session.answers.find(a => a.questionId.toString() === questionId.toString());
     return ans ? ans.selectedOption : null;
   };
@@ -101,7 +102,7 @@ export default function ReviewResult() {
              </div>
           </div>
 
-          <h2 className="text-2xl font-black text-gray-900 mb-8 italic uppercase italic">Detailed Breakdown</h2>
+          <h2 className="text-2xl font-black text-gray-900 mb-8 italic uppercase">Detailed Breakdown</h2>
 
           <div className="space-y-6">
             {exam.questions.map((q, idx) => {

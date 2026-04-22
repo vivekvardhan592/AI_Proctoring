@@ -1,282 +1,454 @@
 // src/pages/StudentDashboard.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import Sidebar from '../components/Sidebar';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Clock, Award, PlayCircle, History, BookOpen, AlertCircle, ShieldCheck } from 'lucide-react';
+import {
+  Activity, Clock, Award, PlayCircle, BookOpen,
+  AlertCircle, ShieldCheck, ChevronRight, CheckCircle2,
+  XCircle, Zap, ArrowRight, ClipboardList
+} from 'lucide-react';
 
+// ── Skeleton ────────────────────────────────────────────────────────────────
+const Pulse = ({ className = '' }) => (
+  <div className={`animate-pulse bg-slate-100 rounded-xl ${className}`} />
+);
+
+// ── Cache ───────────────────────────────────────────────────────────────────
+const CACHE_KEY = 'student_dashboard_v2';
+const CACHE_TTL = 30_000;
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    return Date.now() - ts < CACHE_TTL ? data : null;
+  } catch { return null; }
+}
+function writeCache(data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
+
+// ── Greeting ────────────────────────────────────────────────────────────────
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+// ── Status badge ────────────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const map = {
+    completed:  { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500',  label: 'Completed' },
+    terminated: { bg: 'bg-red-50',      text: 'text-red-600',     dot: 'bg-red-500',      label: 'Terminated' },
+    ongoing:    { bg: 'bg-indigo-50',   text: 'text-indigo-700',  dot: 'bg-indigo-500',   label: 'Ongoing' },
+  };
+  const s = map[status] || map.completed;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
+
+// ── Main ────────────────────────────────────────────────────────────────────
 export default function StudentDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [data, setData] = useState({
-    upcomingExams: [],
-    attemptedExams: [],
-    ongoingExam: null
-  });
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const navigate   = useNavigate();
+  const socketRef  = useRef(null);
+  const token      = localStorage.getItem('token');
 
-  const token = localStorage.getItem('token');
-  const [user, setUser] = useState(localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null);
+  const [user] = useState(() => {
+    const raw = localStorage.getItem('user');
+    return raw ? JSON.parse(raw) : null;
+  });
+
+  const cached = readCache();
+  const [data, setData] = useState(cached || { upcomingExams: [], attemptedExams: [], ongoingExams: [] });
+  const [loading, setLoading] = useState(!cached);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    if (!token || !user) return;
+
+    (async () => {
       try {
-        const [eRes, sRes, uRes] = await Promise.all([
-          fetch(import.meta.env.VITE_API_URL + "/api/exams", { headers: { "Authorization": `Bearer ${token}` } }),
-          fetch(import.meta.env.VITE_API_URL + "/api/sessions", { headers: { "Authorization": `Bearer ${token}` } }),
-          fetch(import.meta.env.VITE_API_URL + "/api/auth/me", { headers: { "Authorization": `Bearer ${token}` } })
+        const [eRes, sRes] = await Promise.all([
+          fetch(`${import.meta.env.VITE_API_URL}/api/exams`,    { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${import.meta.env.VITE_API_URL}/api/sessions`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
+        const [eData, sData] = await Promise.all([eRes.json(), sRes.json()]);
 
-        const eData = await eRes.json();
-        const sData = await sRes.json();
-        const uData = await uRes.json();
-
-        if (uData.success) {
-           setUser(uData.data);
-           localStorage.setItem('user', JSON.stringify(uData.data));
+        if (eData.success && sData.success) {
+          const sessions = sData.data;
+          const usedIds  = new Set(sessions.map(s => (s.examId?._id || s.examId)?.toString()));
+          const fresh    = {
+            ongoingExams:  sessions.filter(s => s.status === 'ongoing'),
+            attemptedExams: sessions.filter(s => s.status === 'completed' || s.status === 'terminated'),
+            upcomingExams: eData.data.filter(e => e.isActive && !usedIds.has(e._id.toString())),
+          };
+          setData(fresh);
+          writeCache(fresh);
         }
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    })();
 
-        if (eData.success && sData.success && uData.success) {
-          const allExams = eData.data;
-          const allSessions = sData.data;
-
-          // 1. Identify ALL Attempted or Ongoing Exam IDs (Robust string comparison)
-          const attemptedOrOngoingExamIds = new Set(
-            allSessions.map(s => s.examId?._id ? s.examId._id.toString() : s.examId?.toString())
-          );
-
-          // 2. Filter Logic (Strict state separation)
-          const ongoing = allSessions.filter(s => s.status === 'ongoing');
-          const completed = allSessions.filter(s => s.status === 'completed' || s.status === 'terminated');
-          const upcoming = allExams.filter(e => e.isActive && !attemptedOrOngoingExamIds.has(e._id.toString()));
-          
-          setData({
-            upcomingExams: upcoming,
-            attemptedExams: completed,
-            ongoingExams: ongoing
-          });
-        }
-      } catch (err) {
-        console.error("Dashboard fetch error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (token) fetchDashboardData();
+    socketRef.current = io(import.meta.env.VITE_API_URL);
+    socketRef.current.emit('student-join', { userId: user._id, name: user.name });
+    return () => socketRef.current?.disconnect();
   }, [token]);
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "N/A";
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
+  const formatDate = (d) => d
+    ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—';
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 font-sans">
-      <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-      <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest animate-pulse">Synchronizing Telemetry...</p>
-    </div>
-  );
-
+  // ── Identity gate ─────────────────────────────────────────────────────────
   if (user && user.verificationStatus !== 'verified') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center font-sans">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="bg-white p-10 rounded-[2.5rem] shadow-2xl shadow-indigo-100 max-w-lg border border-slate-100"
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50/30 flex items-center justify-center p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-3xl shadow-xl shadow-indigo-100/50 border border-slate-100 p-12 max-w-md w-full text-center"
         >
-          <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner border border-indigo-100">
-             <ShieldCheck size={40} />
+          <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <ShieldCheck className="w-8 h-8 text-indigo-600" />
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-4">Identity Lock</h2>
-          {user.verificationStatus === 'pending' ? (
-            <p className="text-slate-500 font-medium mb-8 leading-relaxed">Your facial biometric data has been submitted and is currently <strong className="text-amber-500">Pending Admin Verification</strong>. You will be granted access immediately upon approval.</p>
-          ) : user.verificationStatus === 'rejected' ? (
-            <p className="text-slate-500 font-medium mb-8 leading-relaxed">Your submitted face image was <strong className="text-red-500">Rejected</strong> by the administrator. Please capture a clear, recognizable image.</p>
-          ) : (
-             <p className="text-slate-500 font-medium mb-8 leading-relaxed">You must register your biometric facial data to unlock dashboard access and participate in secured exams.</p>
-          )}
-          <button onClick={() => navigate('/Profile')} className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl w-full uppercase tracking-widest text-xs hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-200 transition-all">Go to Profile →</button>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Identity Required</h2>
+          <p className="text-slate-500 text-sm leading-relaxed mb-8">
+            {user.verificationStatus === 'pending'
+              ? 'Your face scan is pending admin approval. You\'ll get access the moment it\'s verified.'
+              : user.verificationStatus === 'rejected'
+              ? 'Your submission was rejected. Please re-capture a clear, well-lit photo.'
+              : 'Register your face to unlock access to secured exam sessions.'}
+          </p>
+          <button
+            onClick={() => navigate('/Profile')}
+            className="w-full py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+          >
+            Complete Verification <ArrowRight className="w-4 h-4" />
+          </button>
         </motion.div>
       </div>
     );
   }
 
+  const totalCompleted = data.attemptedExams.filter(s => s.status === 'completed').length;
+  const totalScore     = data.attemptedExams
+    .filter(s => s.status === 'completed' && s.score)
+    .reduce((a, s) => a + s.score, 0);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans">
+    <div className="h-screen bg-[#f8f9fc] flex font-sans overflow-hidden">
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
 
-      <div className={`flex-1 min-w-0 transition-all duration-300 ml-20 lg:ml-64`}>
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-          <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="text-xl font-bold text-indigo-600 lg:hidden">ProctorAI</div>
-            <div className="flex items-center gap-5 ml-auto">
-              <span className="text-slate-600 text-sm hidden sm:block font-bold">
-                {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+      <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+
+        {/* ── Top bar ─────────────────────────────────────────────────────── */}
+        <header className="bg-white border-b border-slate-200/80 sticky top-0 z-40 backdrop-blur-sm">
+          <div className="px-8 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-400">
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </span>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Live exam pill */}
+              {data.ongoingExams?.length > 0 && (
+                <button
+                  onClick={() => navigate(`/exam/${data.ongoingExams[0]?.examId?._id}`)}
+                  className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-full text-xs font-bold hover:bg-red-100 transition-colors"
+                >
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                  Exam in Progress — Resume
+                </button>
+              )}
+              <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">
+                {user?.name?.[0]?.toUpperCase() ?? 'S'}
+              </div>
             </div>
           </div>
         </header>
 
-        <main className="max-w-[1400px] mx-auto px-6 py-10 lg:py-12">
-          
-          {/* Ongoing Section */}
-          {data.ongoingExams?.length > 0 && (
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-              className="pb-8 lg:pb-10"
-            >
-              <div className="bg-indigo-600 text-white rounded-3xl p-10 shadow-2xl shadow-indigo-200 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 group-hover:scale-110 transition-transform duration-700"></div>
-                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-                  <div>
-                    <h2 className="text-3xl font-black tracking-tighter mb-2 flex items-center gap-3">
-                      <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse"></div>
-                      EXAM IN PROGRESS
-                    </h2>
-                    <p className="text-indigo-100 text-xl font-medium">{data.ongoingExams[0]?.examId?.title}</p>
-                  </div>
-                  <button 
-                    onClick={() => navigate(`/exam/${data.ongoingExams[0]?.examId?._id}`)}
-                    className="px-8 py-4 bg-white text-indigo-700 font-black rounded-2xl shadow-xl hover:scale-105 transition-transform uppercase tracking-widest text-xs flex items-center gap-2"
-                  >
-                    Resume Now <PlayCircle size={18} />
-                  </button>
-                </div>
-              </div>
-            </motion.section>
-          )}
+        <main className="flex-1 px-10 py-12 max-w-[1500px] w-full mx-auto">
 
-          <motion.section 
-            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="pb-10 z-10 relative"
+          {/* ── Hero greeting ──────────────────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+            className="mb-12"
           >
-            <h1 className="text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter mb-3">
-              Dashboard
-            </h1>
-            <p className="text-slate-500 text-lg font-medium max-w-2xl">
-              Track your performance, resume active sessions, and access upcoming exams.
+            <p className="text-sm font-semibold text-indigo-500 mb-2 uppercase tracking-widest">
+              {getGreeting()}
             </p>
-          </motion.section>
+            <h1 className="text-5xl font-bold text-slate-900 tracking-tight">
+              {user?.name?.split(' ')[0] ?? 'Student'} <span className="text-slate-300">👋</span>
+            </h1>
+            <p className="text-slate-500 mt-2 text-lg">
+              Here's your exam activity at a glance.
+            </p>
+          </motion.div>
 
-          {/* Performance Stats */}
-          <section className="pb-12 grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group">
-              <div className="flex justify-between items-start mb-6">
-                <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600 transition-colors group-hover:bg-indigo-600 group-hover:text-white"><Activity size={24} /></div>
-              </div>
-              <p className="text-5xl font-black text-slate-900 tracking-tighter">{data.ongoingExams?.length || 0}</p>
-              <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mt-2">Active Modules</p>
-            </motion.div>
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group">
-              <div className="flex justify-between items-start mb-6">
-                <div className="p-3 bg-slate-50 rounded-xl text-slate-600 transition-colors group-hover:bg-slate-900 group-hover:text-white"><Clock size={24} /></div>
-              </div>
-              <p className="text-5xl font-black text-slate-900 tracking-tighter">{data.upcomingExams.length}</p>
-              <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mt-2">Pending Access</p>
-            </motion.div>
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white border border-emerald-100 rounded-3xl p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 text-emerald-50 opacity-50 transform group-hover:scale-150 transition-transform duration-500"><Award size={120} /></div>
-              <div className="relative z-10">
-                <div className="flex justify-between items-start mb-6">
-                  <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600 transition-colors group-hover:bg-emerald-600 group-hover:text-white"><Award size={24} /></div>
-                </div>
-                <p className="text-5xl font-black text-emerald-600 tracking-tighter">{data.attemptedExams.filter(s => s.status === 'completed').length}</p>
-                <p className="text-emerald-500 font-bold uppercase tracking-widest text-[10px] mt-2">Total Completed</p>
-              </div>
-            </motion.div>
-          </section>
-
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-             {/* 1. Ongoing Exams */}
-             <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+          {/* ── Stats row ──────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            {[
+              {
+                label: 'Active Sessions', icon: Activity,
+                value: loading && !cached ? null : data.ongoingExams.length,
+                color: 'indigo', accent: 'bg-indigo-600',
+              },
+              {
+                label: 'Available Exams', icon: BookOpen,
+                value: loading && !cached ? null : data.upcomingExams.length,
+                color: 'sky', accent: 'bg-sky-500',
+              },
+              {
+                label: 'Completed', icon: CheckCircle2,
+                value: loading && !cached ? null : totalCompleted,
+                color: 'emerald', accent: 'bg-emerald-500',
+              },
+              {
+                label: 'Total Score', icon: Award,
+                value: loading && !cached ? null : totalScore || '—',
+                color: 'violet', accent: 'bg-violet-500',
+              },
+            ].map((s, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                className="group bg-white rounded-3xl border border-slate-200/60 p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-default"
+              >
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-bold text-slate-900 tracking-tight uppercase flex items-center gap-2"><PlayCircle size={18} className="text-indigo-500"/> Live Modules</h2>
-                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors ${
+                    s.color === 'indigo'  ? 'bg-indigo-50  group-hover:bg-indigo-600'  :
+                    s.color === 'sky'     ? 'bg-sky-50     group-hover:bg-sky-500'     :
+                    s.color === 'emerald' ? 'bg-emerald-50 group-hover:bg-emerald-500' :
+                                           'bg-violet-50  group-hover:bg-violet-500'
+                  }`}>
+                    <s.icon className={`w-7 h-7 transition-colors ${
+                      s.color === 'indigo'  ? 'text-indigo-600  group-hover:text-white' :
+                      s.color === 'sky'     ? 'text-sky-600     group-hover:text-white' :
+                      s.color === 'emerald' ? 'text-emerald-600 group-hover:text-white' :
+                                             'text-violet-600  group-hover:text-white'
+                    }`} />
+                  </div>
+                  <div className={`w-1.5 h-10 rounded-full opacity-20 ${
+                    s.color === 'indigo'  ? 'bg-indigo-600'  :
+                    s.color === 'sky'     ? 'bg-sky-500'     :
+                    s.color === 'emerald' ? 'bg-emerald-500' :
+                                           'bg-violet-500'
+                  }`} />
                 </div>
-                <div className="space-y-4">
-                  {data.ongoingExams?.map(session => (
-                    <div key={session._id} className="bg-indigo-50 border border-indigo-100 p-6 rounded-3xl relative overflow-hidden group">
-                       <h3 className="text-lg font-bold text-indigo-900 mb-4">{session.examId?.title}</h3>
-                       <button 
-                         onClick={() => navigate(`/exam/${session.examId?._id}`)}
-                         className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest text-xs shadow-md shadow-indigo-200 flex justify-center items-center gap-2"
-                       >
-                         Resume Session <PlayCircle size={16} />
-                       </button>
-                    </div>
-                  ))}
-                  {(!data.ongoingExams || data.ongoingExams.length === 0) && (
-                    <div className="border border-dashed border-slate-200 bg-white p-8 rounded-[2rem] text-center shadow-sm">
-                       <div className="mx-auto w-12 h-12 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-3"><AlertCircle size={24} /></div>
-                       <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">No active modules</p>
-                    </div>
-                  )}
-                </div>
-             </motion.section>
+                {s.value === null
+                  ? <Pulse className="w-16 h-10 mb-2" />
+                  : <p className="text-4xl font-bold text-slate-900 tracking-tight">{s.value}</p>
+                }
+                <p className="text-sm text-slate-400 font-medium mt-2">{s.label}</p>
+              </motion.div>
+            ))}
+          </div>
 
-             {/* 2. Upcoming Exams */}
-             <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-bold text-slate-900 tracking-tight uppercase flex items-center gap-2"><BookOpen size={18} className="text-slate-500"/> Available Next</h2>
-                  <Link to="/UpcomingExams" className="text-indigo-600 font-bold text-[10px] hover:text-indigo-800 tracking-widest transition-colors">VIEW ALL →</Link>
-                </div>
-                <div className="space-y-4">
-                  {data.upcomingExams.slice(0, 3).map(exam => (
-                    <div key={exam._id} className="bg-white border border-slate-200 p-6 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow group">
-                       <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">{exam.subject}</p>
-                       <h3 className="text-lg font-bold text-slate-900 mb-5 tracking-tight leading-tight">{exam.title}</h3>
-                       <button 
-                         onClick={() => navigate(`/exam/${exam._id}`)}
-                         className="w-full py-3 bg-indigo-50 text-indigo-700 font-bold rounded-xl hover:bg-indigo-600 hover:text-white transition-colors uppercase tracking-widest text-[10px]"
-                       >
-                         Start Exam
-                       </button>
-                    </div>
-                  ))}
-                  {data.upcomingExams.length === 0 && (
-                     <div className="border border-dashed border-slate-200 bg-white p-8 rounded-[2rem] text-center shadow-sm">
-                       <div className="mx-auto w-12 h-12 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-3"><BookOpen size={24} /></div>
-                       <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Clear for now</p>
-                     </div>
-                  )}
-                </div>
-             </motion.section>
+          {/* ── Main two-column layout ─────────────────────────────────────── */}
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
 
-             {/* 3. Attempted History */}
-             <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}>
-                <h2 className="text-lg font-bold text-slate-900 tracking-tight uppercase mb-6 flex items-center gap-2"><History size={18} className="text-slate-500"/> History & Insights</h2>
-                <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
-                   <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
-                      <table className="w-full">
-                         <tbody className="divide-y divide-slate-100 font-bold text-sm">
-                            {data.attemptedExams.map(session => (
-                               <tr key={session._id} className="hover:bg-slate-50 transition-colors">
-                                  <td className="p-5">
-                                     <p className="text-slate-900 mb-1 line-clamp-1">{session.examId?.title}</p>
-                                     <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${session.status === 'terminated' ? 'bg-red-50 text-red-500 border-red-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                        {session.status}
-                                     </span>
-                                  </td>
-                                  <td className="p-5 text-right whitespace-nowrap">
-                                     <p className="text-lg font-black text-slate-900">{session.status === 'completed' ? session.score : '—'}</p>
-                                     <p className="text-[9px] text-slate-400 uppercase font-semibold">{formatDate(session.startTime)}</p>
-                                  </td>
-                               </tr>
-                            ))}
-                            {data.attemptedExams.length === 0 && (
-                              <tr><td className="p-8 text-center text-slate-400 font-semibold text-xs tracking-widest">NO HISTORY YET</td></tr>
+            {/* LEFT — Available exams (3/5 width) */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="xl:col-span-3 space-y-5"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-slate-800">Available Exams</h2>
+                </div>
+                <Link
+                  to="/UpcomingExams"
+                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                >
+                  View all <ChevronRight className="w-4 h-4" />
+                </Link>
+              </div>
+
+              {/* Exam cards */}
+              <div className="space-y-3">
+                {loading && !cached
+                  ? Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="bg-white rounded-2xl border border-slate-200/60 p-6 space-y-4 shadow-sm">
+                      <Pulse className="w-24 h-4" />
+                      <Pulse className="w-56 h-6" />
+                      <div className="flex gap-3">
+                        <Pulse className="w-28 h-5" />
+                        <Pulse className="w-28 h-5" />
+                      </div>
+                    </div>
+                  ))
+                  : data.upcomingExams.length > 0
+                    ? data.upcomingExams.slice(0, 5).map((exam, i) => (
+                      <motion.div
+                        key={exam._id}
+                        initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.2 + i * 0.05 }}
+                        className="group bg-white rounded-3xl border border-slate-200/60 p-7 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer"
+                        onClick={() => navigate(`/exam/${exam._id}`)}
+                      >
+                        <div className="flex items-start justify-between gap-5">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2.5">
+                              <span className="text-xs font-bold text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2.5 py-1 rounded-full">
+                                {exam.subject || 'General'}
+                              </span>
+                              {exam.duration && (
+                                <span className="text-xs text-slate-400 flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" /> {exam.duration} min
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-semibold text-slate-900 text-base leading-snug mb-1.5 truncate">
+                              {exam.title}
+                            </h3>
+                            {exam.totalMarks && (
+                              <p className="text-sm text-slate-400">
+                                {exam.totalMarks} marks · Pass: {exam.passingMarks}
+                              </p>
                             )}
-                         </tbody>
-                      </table>
-                   </div>
+                          </div>
+                          <button
+                            onClick={e => { e.stopPropagation(); navigate(`/exam/${exam._id}`); }}
+                            className="flex-shrink-0 flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 group-hover:shadow-indigo-300"
+                          >
+                            Start <PlayCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))
+                    : (
+                      <div className="bg-white rounded-3xl border border-dashed border-slate-200 p-16 text-center shadow-sm">
+                        <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-5">
+                          <BookOpen className="w-8 h-8 text-slate-300" />
+                        </div>
+                        <p className="text-base font-semibold text-slate-700 mb-1.5">No exams available</p>
+                        <p className="text-sm text-slate-400">New exams will appear here when published.</p>
+                      </div>
+                    )
+                }
+              </div>
+
+              {/* Ongoing exams (if any) */}
+              {data.ongoingExams?.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="w-8 h-8 bg-red-50 rounded-xl flex items-center justify-center">
+                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    </div>
+                    <h2 className="text-base font-semibold text-slate-800">In Progress</h2>
+                  </div>
+                  {data.ongoingExams.map(session => (
+                    <div
+                      key={session._id}
+                      onClick={() => navigate(`/exam/${session.examId?._id}`)}
+                      className="bg-gradient-to-r from-indigo-600 to-indigo-500 text-white rounded-2xl p-5 flex items-center justify-between cursor-pointer hover:from-indigo-700 hover:to-indigo-600 transition-all shadow-lg shadow-indigo-200"
+                    >
+                      <div>
+                        <p className="text-indigo-200 text-[10px] font-bold uppercase tracking-widest mb-1">Exam in session</p>
+                        <p className="font-semibold text-base">{session.examId?.title}</p>
+                      </div>
+                      <button className="bg-white text-indigo-700 text-xs font-bold px-5 py-2.5 rounded-xl hover:bg-indigo-50 transition-colors flex items-center gap-2 shadow-sm">
+                        Resume <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-             </motion.section>
+              )}
+            </motion.div>
+
+            {/* RIGHT — History & Insights (2/5 width) */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="xl:col-span-2 space-y-5"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                  <ClipboardList className="w-5 h-5 text-slate-500" />
+                </div>
+                <h2 className="text-lg font-semibold text-slate-800">Recent Activity</h2>
+              </div>
+
+              {/* History list */}
+              <div className="bg-white rounded-3xl border border-slate-200/60 shadow-md overflow-hidden">
+                {loading && !cached
+                  ? Array(4).fill(0).map((_, i) => (
+                    <div key={i} className={`px-7 py-6 flex items-center justify-between ${i < 3 ? 'border-b border-slate-100' : ''}`}>
+                      <div className="space-y-2.5">
+                        <Pulse className="w-36 h-4" />
+                        <Pulse className="w-20 h-3" />
+                      </div>
+                      <div className="text-right space-y-2.5">
+                        <Pulse className="w-12 h-6 ml-auto" />
+                        <Pulse className="w-20 h-3 ml-auto" />
+                      </div>
+                    </div>
+                  ))
+                  : data.attemptedExams.length > 0
+                    ? data.attemptedExams.slice(0, 8).map((session, i) => (
+                      <motion.div
+                        key={session._id}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                        transition={{ delay: 0.25 + i * 0.04 }}
+                        className={`px-7 py-6 flex items-center justify-between hover:bg-slate-50/80 transition-colors ${i < data.attemptedExams.slice(0, 8).length - 1 ? 'border-b border-slate-100' : ''}`}
+                      >
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            session.status === 'completed'
+                              ? 'bg-emerald-50' : 'bg-red-50'
+                          }`}>
+                            {session.status === 'completed'
+                              ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                              : <XCircle className="w-5 h-5 text-red-400" />
+                            }
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate max-w-[160px]">
+                              {session.examId?.title ?? 'Exam'}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">{formatDate(session.startTime)}</p>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          {session.status === 'completed'
+                            ? <p className="text-lg font-bold text-slate-900">{session.score ?? 0}</p>
+                            : <StatusBadge status="terminated" />
+                          }
+                        </div>
+                      </motion.div>
+                    ))
+                    : (
+                      <div className="px-7 py-20 text-center">
+                        <AlertCircle className="w-10 h-10 text-slate-200 mx-auto mb-4" />
+                        <p className="text-base font-semibold text-slate-600">No exam history yet</p>
+                        <p className="text-sm text-slate-400 mt-1.5">Completed exams will show here.</p>
+                      </div>
+                    )
+                }
+              </div>
+
+
+            </motion.div>
+
           </div>
         </main>
-        <footer className="border-t border-slate-200 py-8 text-center text-slate-400 text-[10px] font-bold uppercase tracking-widest bg-white mt-auto">
-          © {new Date().getFullYear()} ProctorAI — Secure Examination Framework
+
+        <footer className="px-8 py-5 border-t border-slate-200/60 bg-white">
+          <p className="text-xs text-slate-400">
+            © {new Date().getFullYear()} ProctorAI · Secure Examination Platform
+          </p>
         </footer>
       </div>
     </div>

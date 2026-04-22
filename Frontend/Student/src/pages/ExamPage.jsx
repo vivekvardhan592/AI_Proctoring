@@ -253,8 +253,9 @@ const getFaceDescriptor = async (imgSrc) => {
     //  1. Socket + fetch exam
     // ─────────────────────────────────────────────────────────────────
     useEffect(() => {
-      socketRef.current = io(import.meta.env.VITE_API_URL);
-
+      socketRef.current = io(import.meta.env.VITE_API_URL, { 
+          transports: ["websocket"]
+      });
 
       const fetchExam = async () => {
         try {
@@ -272,50 +273,60 @@ const getFaceDescriptor = async (imgSrc) => {
         finally { setLoading(false); }
       };
 
+      // ✅ ICE candidate buffer — holds candidates that arrive before remote description is set
+      const iceCandidateQueue = [];
+
+      // ✅ ANSWER HANDLER (registered HERE to avoid race with socket creation)
+      const handleAnswer = async ({ answer, sessionId }) => {
+        if (sessionId !== sessionIdRef.current) return;
+        if (!peerRef.current) return;
+
+        if (peerRef.current.signalingState !== "have-local-offer") {
+          console.log("⚠️ Skipping duplicate/stale answer");
+          return;
+        }
+
+        try {
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          console.log("✅ Remote description set — flushing", iceCandidateQueue.length, "buffered ICE candidates");
+
+          // Flush buffered ICE candidates
+          while (iceCandidateQueue.length > 0) {
+            const queued = iceCandidateQueue.shift();
+            if (peerRef.current && queued) {
+              await peerRef.current.addIceCandidate(new RTCIceCandidate(queued)).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error("❌ setRemoteDescription error:", err);
+        }
+      };
+
+      // ✅ ICE HANDLER with buffering
+      const handleICE = async ({ candidate, sessionId }) => {
+        if (sessionId !== sessionIdRef.current) return;
+        if (!peerRef.current || !candidate) return;
+
+        if (peerRef.current.remoteDescription) {
+          await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+        } else {
+          // Buffer the candidate until remote description is ready
+          iceCandidateQueue.push(candidate);
+        }
+      };
+
+      socketRef.current.on('webrtc-answer', handleAnswer);
+      socketRef.current.on('webrtc-ice-candidate', handleICE);
+
       if (token && examId) fetchExam();
-      return () => { if (socketRef.current) socketRef.current.disconnect(); };
+      return () => { 
+        if (socketRef.current) {
+          socketRef.current.off('webrtc-answer', handleAnswer);
+          socketRef.current.off('webrtc-ice-candidate', handleICE);
+          socketRef.current.disconnect();
+        }
+      };
     }, [examId, token]);
-
-  useEffect(() => {
-    if (!socketRef.current) return;
-
-    // ✅ ANSWER HANDLER
-    const handleAnswer = async ({ answer, sessionId }) => {
-      if (sessionId !== sessionIdRef.current) return;
-      if (!peerRef.current) return;
-
-      if (peerRef.current.signalingState !== "have-local-offer") {
-        console.log("⚠️ Skipping duplicate answer");
-        return;
-      }
-
-      await peerRef.current.setRemoteDescription(
-        new RTCSessionDescription(answer)
-      );
-
-      console.log("✅ Remote description set");
-    };
-
-    // ✅ ICE HANDLER
-    const handleICE = async ({ candidate, sessionId }) => {
-      if (sessionId !== sessionIdRef.current) return;
-      if (!peerRef.current || !candidate) return;
-
-      if (peerRef.current.remoteDescription) {
-        await peerRef.current.addIceCandidate(
-          new RTCIceCandidate(candidate)
-        );
-      }
-    };
-
-
-    // ✅ CLEANUP (VERY IMPORTANT)
-    return () => {
-      socketRef.current.off('webrtc-answer', handleAnswer);
-      socketRef.current.off('webrtc-ice-candidate', handleICE);
-    };
-
-  }, []);
 
   // ✅ NEW LISTENER FOR LATE-JOIN ADMINS
   useEffect(() => {
@@ -928,18 +939,15 @@ const getFaceDescriptor = async (imgSrc) => {
               : "Partial mismatch — poor lighting or angle. Improve conditions and try again."
           );
           const formData = new FormData();
-formData.append("examId", examId);
-formData.append("violationType", "Pre-Exam Impersonation Attempt");
-formData.append("image", snapshot); // ✅ IMPORTANT
-formData.append("distance", dist);
-
-await fetch(import.meta.env.VITE_API_URL + "/api/sessions/pre-check-violation", {
-  method: "POST",
-  headers: {
-    "Authorization": `Bearer ${token}`
-  },
-  body: formData
-}).catch(() => { });
+          formData.append("studentId", JSON.parse(localStorage.getItem('user'))?._id || "");
+          formData.append("examId", examId);
+          formData.append("violationType", "Pre-Exam Impersonation Attempt");
+          // Use the standard violations endpoint (pre-check-violation route doesn't exist)
+          await fetch(import.meta.env.VITE_API_URL + "/api/sessions/update-proctoring/pre-check", {
+            method: "PUT",
+            headers: { "Authorization": `Bearer ${token}` },
+            body: formData
+          }).catch(() => { }); // Silently fail — this is just logging, not critical
         }
       } catch (err) {
         console.error("Face verify error:", err);

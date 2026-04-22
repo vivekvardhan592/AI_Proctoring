@@ -13,7 +13,18 @@ export default function Profile() {
   const [faceImage, setFaceImage] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const videoRef = useRef(null);
+  const streamRef = useRef(null); // FIX: track active stream for cleanup
   const token = localStorage.getItem('token');
+
+  // FIX: Stop camera stream on component unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
      const fetchProfile = async () => {
@@ -36,8 +47,9 @@ export default function Profile() {
      setIsCapturing(true);
      try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = stream; // FIX: store reference for cleanup
         if (videoRef.current) videoRef.current.srcObject = stream;
-     } catch (err) { alert("Camera access denied"); }
+     } catch (err) { alert("Camera access denied"); setIsCapturing(false); }
   };
 
   const captureImage = () => {
@@ -51,8 +63,10 @@ export default function Profile() {
      setFaceImage(base64);
      
      // Stop stream
-     const stream = videoRef.current.srcObject;
-     if (stream) stream.getTracks().forEach(t => t.stop());
+     if (streamRef.current) {
+       streamRef.current.getTracks().forEach(t => t.stop());
+       streamRef.current = null;
+     }
      setIsCapturing(false);
   };
 
@@ -86,10 +100,10 @@ export default function Profile() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans">
+    <div className="h-screen bg-slate-50 text-slate-800 flex font-sans overflow-hidden">
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
 
-      <div className={`flex-1 min-w-0 transition-all duration-300 ml-20 lg:ml-64`}>
+      <div className="flex-1 min-w-0 overflow-y-auto">
         <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
           <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
             <div className="text-xl font-bold text-indigo-600 lg:hidden">ProctorAI</div>

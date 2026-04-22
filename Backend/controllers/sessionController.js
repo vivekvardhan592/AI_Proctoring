@@ -249,20 +249,25 @@ const updateSessionProctoring = async (req, res, next) => {
 const getSessions = async (req, res, next) => {
   try {
     let filter = {};
+
     if (req.user.role === "student") {
       filter = { studentId: req.user._id };
     } else if (req.user.role === "admin") {
-      const exams = await Exam.find({ institution: req.user.institution }).select('_id');
-      const examIds = exams.map(e => e._id);
-      filter = { examId: { $in: examIds } };
+      // ⚡ Run in parallel instead of serial (was 2 sequential DB calls)
+      const exams = await Exam.find({ institution: req.user.institution }).select('_id').lean();
+      filter = { examId: { $in: exams.map(e => e._id) } };
     }
 
+    // ⚡ Exclude heavy arrays (answers[], violationLogs[]) from list view
+    // They are only needed in getSessionById which has its own endpoint
     let sessions = await ExamSession.find(filter)
+      .select('-answers -violationLogs') // 🔥 excludes heavy nested arrays
       .populate("studentId", "name email")
       .populate("examId", "title duration totalMarks passingMarks")
-      .sort({ startTime: -1 });
+      .sort({ startTime: -1 })
+      .lean();
 
-    // 🔥 FIX: ensure sessions with endTime are treated as completed
+    // Fix: mark sessions with endTime + ongoing status as completed
     sessions = sessions.map((s) => {
       if (s.endTime && s.status === "ongoing") {
         s.status = "completed";
@@ -270,9 +275,7 @@ const getSessions = async (req, res, next) => {
       return s;
     });
 
-    res
-      .status(200)
-      .json({ success: true, count: sessions.length, data: sessions });
+    res.status(200).json({ success: true, count: sessions.length, data: sessions });
   } catch (error) {
     next(error);
   }

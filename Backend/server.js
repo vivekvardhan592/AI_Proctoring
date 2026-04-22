@@ -29,7 +29,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT"]
+    methods: ["GET", "POST", "PUT"],
+    credentials: true
   }
 });
 
@@ -49,16 +50,21 @@ app.use(express.urlencoded({ limit: '50mb', extended: false }));
 // --- Socket.IO Logic ---
 let onlineStudents = new Map(); // socketId -> { userId, name }
 
-// 📡 Store socket mapping
-let clients = {};
-
 io.on('connection', (socket) => {
 
-  // Store socket
-  clients[socket.id] = socket.id;
+  // 👤 Student registers themselves when joining
+  socket.on('student-join', ({ userId, name }) => {
+    if (userId && name) {
+      onlineStudents.set(socket.id, { userId, name });
+      io.emit('online-students-count', onlineStudents.size);
+    }
+  });
 
   socket.on('disconnect', () => {
-    delete clients[socket.id];
+    if (onlineStudents.has(socket.id)) {
+      onlineStudents.delete(socket.id);
+      io.emit('online-students-count', onlineStudents.size);
+    }
   });
 
   // 🎥 OFFER (student → admin)
