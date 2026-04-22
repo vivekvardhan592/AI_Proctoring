@@ -4,25 +4,30 @@ let redisClient;
 let isRedisConnected = false;
 
 const connectRedis = async () => {
-    redisClient = createClient({
-        url: process.env.REDIS_URI || 'redis://127.0.0.1:6379'
-    });
-
-    redisClient.on('error', (error) => {
-        // In local development, if Redis is missing, we log it without crashing
-        console.warn('Redis connection error (Is Redis running?):', error.message);
-        isRedisConnected = false;
-    });
-
-    redisClient.on('connect', () => {
-        console.log('Connected to Redis successfully');
-        isRedisConnected = true;
-    });
-
     try {
+        // 🚨 FORCE Redis URI (no fallback in production)
+        if (!process.env.REDIS_URI) {
+            throw new Error("REDIS_URI is not defined in environment variables");
+        }
+
+        redisClient = createClient({
+            url: process.env.REDIS_URI
+        });
+
+        redisClient.on('error', (error) => {
+            console.error('❌ Redis Error:', error.message);
+            isRedisConnected = false;
+        });
+
+        redisClient.on('ready', () => {
+            console.log('🔥 Redis is ready and connected');
+            isRedisConnected = true;
+        });
+
         await redisClient.connect();
+
     } catch (err) {
-        console.warn('Init: Failed to connect to Redis. Application will fallback to direct database queries.');
+        console.error('❌ Redis connection failed:', err.message);
     }
 };
 
