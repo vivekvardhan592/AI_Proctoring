@@ -935,7 +935,7 @@ const getFaceDescriptor = async (imgSrc) => {
         if (dist <= 0.5) {
           registeredDescriptorRef.current = regDescriptor;
           setFaceVerifyStatus("matched");
-          setVerifyMessage(`Identity confirmed! (confidence: ${((1 - dist) * 100).toFixed(1)}%)`);
+          setVerifyMessage("Identity confirmed!");
         } else {
           setFaceVerifyStatus("mismatch");
           setVerifyMessage(
