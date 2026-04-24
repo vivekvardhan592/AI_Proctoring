@@ -82,4 +82,9 @@ const examSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
+// ⚡ Indexes for common query patterns
+examSchema.index({ institution: 1, isActive: 1 });          // getAllExams filter
+examSchema.index({ institution: 1, createdAt: -1 });         // sort by newest
+examSchema.index({ createdBy: 1 });                          // admin lookups
+
 module.exports = mongoose.model('Exam', examSchema);

@@ -61,5 +61,9 @@ const examSessionSchema = new mongoose.Schema(
 
 // Prevent a student from having multiple ongoing sessions for the same exam
 examSessionSchema.index({ studentId: 1, examId: 1 }, { unique: true });
+// ⚡ Additional indexes for fast lookups
+examSessionSchema.index({ studentId: 1, startTime: -1 }); // student history sorted
+examSessionSchema.index({ examId: 1, status: 1 });         // admin: filter by exam+status
+examSessionSchema.index({ status: 1, startTime: -1 });     // admin: ongoing sessions
 
 module.exports = mongoose.model('ExamSession', examSessionSchema);

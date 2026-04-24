@@ -1,6 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const compression = require('compression');
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
@@ -25,6 +26,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     ];
 
 const app = express();
+
+// ⚡ Gzip compress all responses — reduces payload sizes ~60-70%
+app.use(compression());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -114,10 +118,25 @@ app.get('/', (req, res) => {
   res.json({ message: 'AI Exam Proctoring API (w/ WebSockets) is running...' });
 });
 
+// ⚡ Health check endpoint (used by Render + keep-alive ping)
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
 app.use(errorHandler);
 
 const SERVER_PORT = process.env.PORT || 5001;
 
 server.listen(SERVER_PORT, () => {
   console.log(`Server running on port ${SERVER_PORT}`);
+
+  // ⚡ Keep-alive: ping self every 14 min so Render free tier never cold-starts
+  if (process.env.NODE_ENV === 'production') {
+    const BACKEND_URL = process.env.BACKEND_URL || `https://ai-proctoring-drrf.onrender.com`;
+    setInterval(() => {
+      fetch(`${BACKEND_URL}/api/health`)
+        .then(() => console.log('⚡ Keep-alive ping sent'))
+        .catch(err => console.warn('Keep-alive ping failed:', err.message));
+    }, 14 * 60 * 1000); // every 14 minutes
+  }
 });

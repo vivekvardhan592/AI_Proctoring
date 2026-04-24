@@ -1,6 +1,7 @@
 const ExamSession = require("../models/ExamSession");
 const Exam = require("../models/Exam");
 const cloudinary = require("../config/cloudinary");
+const { clearCachePrefix } = require('../middleware/redisCache');
 
 // @desc    Student starts an exam session
 // @route   POST /api/sessions/start
@@ -48,6 +49,9 @@ const startExam = async (req, res, next) => {
 
     const io = req.app.get("socketio");
     io.emit("session-live-update", session);
+
+    // ⚡ Bust sessions cache so next load is fresh
+    await clearCachePrefix('sessions', '/api/sessions', req);
 
     res
       .status(201)
@@ -119,6 +123,9 @@ const endExam = async (req, res, next) => {
     const io = req.app.get("socketio");
     io.emit("session-live-update", session);
 
+    // ⚡ Bust sessions cache
+    await clearCachePrefix('sessions', '/api/sessions', req);
+
     res.status(200).json({
       success: true,
       message: "Exam session ended successfully",
@@ -155,6 +162,9 @@ const terminateSession = async (req, res, next) => {
     io.emit(`terminate-session-${session._id}`, {
       message: "Exam terminated by proctor.",
     });
+
+    // ⚡ Bust sessions cache
+    await clearCachePrefix('sessions', '/api/sessions', req);
 
     res
       .status(200)

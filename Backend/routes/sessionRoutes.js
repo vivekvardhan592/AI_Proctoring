@@ -12,6 +12,7 @@ const {
     logPreCheckViolation,
 } = require('../controllers/sessionController');
 const { protect, authorize } = require('../middleware/auth');
+const { routeCache } = require('../middleware/redisCache');
 const upload = require('../middleware/upload');
 
 // All routes require authentication
@@ -48,10 +49,10 @@ router.delete('/clear-images', authorize('admin'), clearAllViolationImages);
 // DELETE /api/sessions/:sessionId/violation/:logIndex — admin only
 router.delete('/:sessionId/violation/:logIndex', authorize('admin'), deleteViolationImage);
 
-// GET  /api/sessions                — admin gets all; student gets own
-router.get('/', getSessions);
+// GET  /api/sessions                — admin gets all; student gets own (cached 20s)
+router.get('/', routeCache('sessions', 20), getSessions);
 
-// GET  /api/sessions/:sessionId     — admin or owner
-router.get('/:sessionId', getSessionById);
+// GET  /api/sessions/:sessionId     — admin or owner (cached 30s)
+router.get('/:sessionId', routeCache('sessions', 30), getSessionById);
 
 module.exports = router;
