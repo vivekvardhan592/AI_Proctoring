@@ -90,7 +90,7 @@ export default function CreateExam() {
   type: q.type,
   question: q.question,
   options: q.type === 'mcq'
-    ? q.options.map(o => String(o).trim()).filter(o => o !== '')
+    ? q.options.map(o => String(o).trim())
     : q.type === 'truefalse'
     ? ['True', 'False']
     : [],

@@ -32,7 +32,9 @@ export default function Violations() {
           const violatingSessions = data.data.filter(s => s.violationsCount > 0 || s.status === 'terminated');
           setSessions(violatingSessions);
         }
-      } catch (err) { }
+      } catch (err) {
+        setError(err.message || "Failed to fetch violations.");
+      }
       finally { setLoading(false); }
     };
 

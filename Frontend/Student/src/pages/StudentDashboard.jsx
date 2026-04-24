@@ -27,7 +27,7 @@ function readCache() {
   } catch { return null; }
 }
 function writeCache(data) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch (e) { console.error(e); }
 }
 
 // ── Greeting ────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export default function StudentDashboard() {
     socketRef.current = io(import.meta.env.VITE_API_URL);
     socketRef.current.emit('student-join', { userId: user._id, name: user.name });
     return () => socketRef.current?.disconnect();
-  }, [token]);
+  }, [token, user]);
 
   const formatDate = (d) => d
     ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

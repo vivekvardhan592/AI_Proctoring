@@ -1,4 +1,5 @@
 const Exam = require('../models/Exam');
+const { clearCachePrefix } = require('../middleware/redisCache');
 
 // @desc    Create a new exam
 // @route   POST /api/exams
@@ -20,6 +21,8 @@ const createExam = async (req, res, next) => {
             createdBy: req.user._id,
             institution: req.user.institution,
         });
+
+        await clearCachePrefix('exams', '/api/exams', req);
 
         res.status(201).json({ success: true, message: 'Exam created successfully', data: exam });
     } catch (error) {
@@ -89,6 +92,8 @@ const updateExam = async (req, res, next) => {
             runValidators: true,
         });
 
+        await clearCachePrefix('exams', '/api/exams', req);
+
         res.status(200).json({ success: true, message: 'Exam updated successfully', data: exam });
     } catch (error) {
         next(error);
@@ -113,6 +118,8 @@ const deleteExam = async (req, res, next) => {
             { isActive: false },
             { new: true }
         );
+
+        await clearCachePrefix('exams', '/api/exams', req);
 
         res.status(200).json({ success: true, message: 'Exam deactivated successfully' });
     } catch (error) {

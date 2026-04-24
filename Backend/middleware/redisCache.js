@@ -41,4 +41,18 @@ const routeCache = (keyPrefix, durationInSeconds = 60) => {
     };
 };
 
-module.exports = { routeCache };
+const clearCachePrefix = async (prefix, path, req) => {
+    if (!isConnected()) return;
+    const redisClient = getRedisClient();
+    let cacheKey = `${prefix}:${path}`;
+    if (req && req.user && req.user.institution) {
+        cacheKey += `:${req.user.institution}`;
+    }
+    try {
+        await redisClient.del(cacheKey);
+    } catch (error) {
+        console.error('Redis DEL error:', error.message);
+    }
+};
+
+module.exports = { routeCache, clearCachePrefix };

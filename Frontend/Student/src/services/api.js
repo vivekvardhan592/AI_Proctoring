@@ -27,24 +27,20 @@ const apiCall = async (endpoint, method = 'GET', data = null) => {
     options.body = JSON.stringify(data);
   }
 
-  try {
-    const response = await fetch(url, options);
-    const responseData = await response.json();
+  const response = await fetch(url, options);
+  const responseData = await response.json();
 
-    if (!response.ok) {
-      // If unauthorized, clear storage and redirect to login
-      if (response.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = import.meta.env.VITE_LOGIN_URL;
-      }
-      throw new Error(responseData.message || 'API Error');
+  if (!response.ok) {
+    // If unauthorized, clear storage and redirect to login
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = import.meta.env.VITE_LOGIN_URL;
     }
-
-    return responseData;
-  } catch (error) {
-    throw error;
+    throw new Error(responseData.message || 'API Error');
   }
+
+  return responseData;
 };
 
 // Auth API endpoints

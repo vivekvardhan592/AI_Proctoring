@@ -13,7 +13,6 @@ export default function UpcomingExams() {
   const [error, setError] = useState("");
 
   const token = localStorage.getItem('token');
-  const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null;
 
   useEffect(() => {
     const fetchExams = async () => {
@@ -29,7 +28,7 @@ export default function UpcomingExams() {
         } else {
           setError(data.message || "Failed to load exams");
         }
-      } catch (err) {
+      } catch {
         setError("Network error. Is the backend server running?");
       } finally {
         setLoading(false);

@@ -3,6 +3,7 @@ const generateToken = require('../utils/generateToken');
 const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
 const ExamSession = require('../models/ExamSession');
+const { clearCachePrefix } = require('../middleware/redisCache');
 
 // @desc    Register a new user (student or admin)
 // @route   POST /api/auth/register
@@ -299,6 +300,8 @@ const deleteUser = async (req, res, next) => {
 
         await User.findByIdAndDelete(req.params.id);
 
+        await clearCachePrefix('students', '/api/auth/students', req);
+
         res.status(200).json({ success: true, message: 'Student account deleted successfully' });
     } catch (error) {
         next(error);
@@ -340,6 +343,8 @@ const verifyStudent = async (req, res, next) => {
              user.faceImage = ''; // Clear so they have to upload again
         }
         await user.save();
+
+        await clearCachePrefix('students', '/api/auth/students', req);
 
         res.status(200).json({ success: true, message: `Student verification updated to ${status}` });
     } catch (error) {

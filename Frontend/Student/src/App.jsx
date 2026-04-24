@@ -15,17 +15,15 @@ const ProtectedRoute = ({ children, requireVerification = false }) => {
   const token = localStorage.getItem('token');
   const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null;
 
-  if (!token || !user) {
-    // Redirect to login if not authenticated
-    window.location.href = import.meta.env.VITE_LOGIN_URL;
-    return null;
-  }
+  useEffect(() => {
+    if (!token || !user) {
+      window.location.href = import.meta.env.VITE_LOGIN_URL;
+    } else if (user.role === 'admin') {
+      window.location.href = import.meta.env.VITE_ADMIN_URL;
+    }
+  }, [token, user]);
 
-  if (user.role === 'admin') {
-    // Redirect to admin dashboard if admin
-    window.location.href = import.meta.env.VITE_ADMIN_URL;
-    return null;
-  }
+  if (!token || !user || user.role === 'admin') return null;
 
   if (requireVerification && user.verificationStatus !== 'verified') {
     return <Navigate to="/" replace />;
@@ -62,6 +60,7 @@ function App(){
          console.warn("Admin detected in Student portal, redirecting...");
          window.location.href = import.meta.env.VITE_ADMIN_URL;
       } else {
+         // eslint-disable-next-line
          setIsAuthenticated(true);
       }
     } else {

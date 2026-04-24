@@ -38,7 +38,9 @@ export default function LiveMonitoring() {
       if (data.success) {
         setSessions(data.data.filter(s => s.status === 'ongoing'));
       }
-    } catch (err) { }
+    } catch (err) {
+      console.error("Failed to fetch live sessions", err);
+    }
     finally { setLoading(false); }
   };
 

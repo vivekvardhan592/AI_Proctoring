@@ -353,6 +353,40 @@ const deleteViolationImage = async (req, res, next) => {
   }
 };
 
+const logPreCheckViolation = async (req, res, next) => {
+  try {
+    const { examId, violationType } = req.body;
+    
+    // We create a dummy terminated session so it shows up in admin logs
+    const session = await ExamSession.create({
+      studentId: req.user._id,
+      examId: examId,
+      startTime: new Date(),
+      endTime: new Date(),
+      status: "terminated",
+      violationsCount: 1,
+      lastViolationType: violationType,
+      violationLogs: [{
+         type: violationType,
+         category: "visual",
+         timestamp: new Date()
+      }]
+    });
+
+    const io = req.app.get("socketio");
+    const populated = await ExamSession.findById(session._id)
+      .populate("studentId", "name")
+      .populate("examId", "title");
+
+    io.emit("violation-alert", populated);
+    io.emit("session-live-update", populated);
+
+    res.json({ success: true, message: "Pre-check violation logged" });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   startExam,
   endExam,
@@ -362,4 +396,5 @@ module.exports = {
   getSessionById,
   clearAllViolationImages,
   deleteViolationImage,
+  logPreCheckViolation,
 };

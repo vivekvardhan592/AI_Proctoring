@@ -1,7 +1,6 @@
   // src/pages/ExamPage.jsx
   import React, { useState, useEffect, useRef } from 'react';
   import { useParams, useNavigate } from 'react-router-dom';
-  import * as tf from '@tensorflow/tfjs';
   import { io } from 'socket.io-client';
   // ─────────────────────────────────────────────────────────────────
   //  FACE-API.JS CDN loader (loads once, cached on window)
@@ -216,6 +215,7 @@ const getFaceDescriptor = async (imgSrc) => {
 
     // YOLO refs
     const modelRef = useRef(null);
+    const tfRef = useRef(null);
     const lastViolationLogRef = useRef({ type: "", timestamp: 0 });
     const missingFaceCountRef = useRef(0);
     const mobileBufferRef = useRef(0);
@@ -418,6 +418,8 @@ const getFaceDescriptor = async (imgSrc) => {
 
       (async () => {
         try {
+          const tf = await import('@tensorflow/tfjs');
+          tfRef.current = tf;
           await tf.ready();
           const modelUrl = "https://cdn.jsdelivr.net/gh/hyuto/yolov8-tfjs@master/public/yolov8n_web_model/model.json";
           modelRef.current = await tf.loadGraphModel(modelUrl);
@@ -427,6 +429,9 @@ const getFaceDescriptor = async (imgSrc) => {
 
       aiInterval = setInterval(async () => {
         if (!videoRef.current || videoRef.current.readyState !== 4 || videoRef.current.videoWidth === 0) return;
+        if (!tfRef.current || !modelRef.current) return;
+        
+        const tf = tfRef.current;
 
         // YOLO detections
         let rawOutput = null;
@@ -867,7 +872,7 @@ const getFaceDescriptor = async (imgSrc) => {
       try {
         if (elem.requestFullscreen) await elem.requestFullscreen();
         else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen();
-      } catch { }
+      } catch (e) { console.error(e); }
     };
 
     // ─────────────────────────────────────────────────────────────────
@@ -1064,7 +1069,7 @@ const getFaceDescriptor = async (imgSrc) => {
         if (document.fullscreenElement || document.webkitFullscreenElement) {
           await document.exitFullscreen?.();
         }
-      } catch { }
+      } catch (e) { console.error(e); }
 
       if (headPoseIntervalRef.current) {
         clearInterval(headPoseIntervalRef.current);

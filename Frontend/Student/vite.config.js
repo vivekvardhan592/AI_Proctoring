@@ -17,4 +17,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-socket': ['socket.io-client'],
+          // We can optionally explicitly list tensorflow, though dynamic imports 
+          // naturally get their own chunks anyway.
+          'vendor-tfjs': ['@tensorflow/tfjs']
+        }
+      }
+    },
+    chunkSizeWarningLimit: 1500, // Increased to suppress the warning for the large TensorFlow chunk
+  }
 })

@@ -9,6 +9,7 @@ const {
     getSessionById,
     clearAllViolationImages,
     deleteViolationImage,
+    logPreCheckViolation,
 } = require('../controllers/sessionController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -21,6 +22,14 @@ router.post('/start', authorize('student'), startExam);
 
 // PUT  /api/sessions/end/:sessionId — student only
 router.put('/end/:sessionId', authorize('student'), endExam);
+
+// PUT  /api/sessions/update-proctoring/pre-check — student only
+router.put(
+  '/update-proctoring/pre-check',
+  authorize('student'),
+  upload.single("image"),
+  require('../controllers/sessionController').logPreCheckViolation
+);
 
 // PUT  /api/sessions/update-proctoring/:sessionId — student only
 router.put(
