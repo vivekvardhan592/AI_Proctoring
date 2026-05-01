@@ -40,7 +40,7 @@ export default function Violations() {
 
     if (token) {
       fetchSessions();
-      socketRef.current = io('http://localhost:5001');
+      socketRef.current = io(import.meta.env.VITE_API_URL);
       
       const updateOrAdd = (session) => {
         if (session.violationsCount > 0 || session.status === 'terminated') {

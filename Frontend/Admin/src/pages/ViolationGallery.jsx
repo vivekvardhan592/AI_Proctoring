@@ -90,7 +90,7 @@ export default function ViolationGallery() {
   }, [token]);
 
   useEffect(() => {
-  const socket = io('http://localhost:5001');
+  const socket = io(import.meta.env.VITE_API_URL);
 
   socket.on("violation-alert", (data) => {
     const newLogs = data.violationLogs
@@ -468,3 +468,4 @@ export default function ViolationGallery() {
     </div>
   );
 }
+

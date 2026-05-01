@@ -128,7 +128,7 @@ export default function Dashboard() {
     fetchData(); // ← runs once on mount
 
     // ── Socket.IO: all subsequent updates are real-time ──────────
-    socketRef.current = io('http://localhost:5001');
+    socketRef.current = io(import.meta.env.VITE_API_URL);
 
     // Live student count
     socketRef.current.on('online-students-count', (count) => {
