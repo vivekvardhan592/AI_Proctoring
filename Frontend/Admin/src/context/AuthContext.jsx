@@ -8,37 +8,89 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Initialize from localStorage or URL on mount
+  // Initialize from localStorage or URL on mount, then validate with server
   useEffect(() => {
-    // Check URL for auth params from cross-origin login
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    const urlUser = urlParams.get('user');
+    const bootstrap = async () => {
+      // Check URL for auth params from cross-origin login
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get('token');
+      const urlUser = urlParams.get('user');
 
-    if (urlToken && urlUser) {
-      try {
-        localStorage.setItem('token', urlToken);
-        localStorage.setItem('user', urlUser);
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (err) {
-        console.error('Error saving URL auth data:', err);
+      if (urlToken && urlUser) {
+        try {
+          localStorage.setItem('token', urlToken);
+          localStorage.setItem('user', urlUser);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (err) {
+          console.error('Error saving URL auth data:', err);
+        }
       }
-    }
 
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+      const storedToken = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
 
-    if (storedToken && storedUser) {
+      if (!storedToken || !storedUser) {
+        setLoading(false);
+        return;
+      }
+
+      let parsedUser;
       try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch (err) {
-        console.error('Error parsing stored user data:', err);
+        parsedUser = JSON.parse(storedUser);
+      } catch {
         logout();
+        setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
+
+      // 🔒 Role gate: admin portal must only accept admin users
+      if (parsedUser?.role !== 'admin') {
+        console.warn('Non-admin user attempted to access Admin portal');
+        logout();
+        setLoading(false);
+        return;
+      }
+
+      // 🔒 Validate token with server (catches expired/revoked tokens)
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/auth/me`,
+          { headers: { Authorization: `Bearer ${storedToken}` } }
+        );
+
+        if (res.status === 401) {
+          // Token invalid or expired
+          logout();
+          setLoading(false);
+          return;
+        }
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data) {
+            // Re-check role on fresh server data
+            if (data.data.role !== 'admin') {
+              logout();
+              setLoading(false);
+              return;
+            }
+            // Update localStorage with fresh user data
+            localStorage.setItem('user', JSON.stringify(data.data));
+            setToken(storedToken);
+            setUser(data.data);
+          }
+        }
+      } catch (err) {
+        // Network error — allow cached data so admin isn't locked out offline
+        console.warn('Could not validate token with server:', err.message);
+        setToken(storedToken);
+        setUser(parsedUser);
+      }
+
+      setLoading(false);
+    };
+
+    bootstrap();
   }, []);
 
   const login = (userData, authToken) => {

@@ -10,6 +10,7 @@ const {
     clearAllViolationImages,
     deleteViolationImage,
     logPreCheckViolation,
+    getViolationImages,
 } = require('../controllers/sessionController');
 const { protect, authorize } = require('../middleware/auth');
 const { routeCache } = require('../middleware/redisCache');
@@ -24,30 +25,26 @@ router.post('/start', authorize('student'), startExam);
 // PUT  /api/sessions/end/:sessionId — student only
 router.put('/end/:sessionId', authorize('student'), endExam);
 
-// PUT  /api/sessions/update-proctoring/pre-check — student only
-router.put(
-  '/update-proctoring/pre-check',
-  authorize('student'),
-  upload.single("image"),
-  require('../controllers/sessionController').logPreCheckViolation
-);
-
 // PUT  /api/sessions/update-proctoring/:sessionId — student only
 router.put(
   '/update-proctoring/:sessionId',
   authorize('student'),
-  upload.single("image"), // 🔥 THIS LINE IS THE KEY CHANGE
+  upload.single("image"),
   updateSessionProctoring
 );
 
-// PUT  /api/sessions/terminate/:sessionId — admin only
-router.put('/terminate/:sessionId', authorize('admin'), terminateSession);
+
+// PUT  /api/sessions/terminate/:sessionId — admin OR student (student can only terminate own)
+router.put('/terminate/:sessionId', authorize('admin', 'student'), terminateSession);
 
 // DELETE /api/sessions/clear-images — admin only
 router.delete('/clear-images', authorize('admin'), clearAllViolationImages);
 
 // DELETE /api/sessions/:sessionId/violation/:logIndex — admin only
 router.delete('/:sessionId/violation/:logIndex', authorize('admin'), deleteViolationImage);
+
+// GET  /api/sessions/violation-images — admin only, returns sessions with evidence images
+router.get('/violation-images', authorize('admin'), getViolationImages);
 
 // GET  /api/sessions                — admin gets all; student gets own (cached 20s)
 router.get('/', routeCache('sessions', 20), getSessions);

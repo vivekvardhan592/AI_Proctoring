@@ -253,7 +253,7 @@ const getFaceDescriptor = async (imgSrc) => {
     //  1. Socket + fetch exam
     // ─────────────────────────────────────────────────────────────────
     useEffect(() => {
-      socketRef.current = io(import.meta.env.VITE_API_URL, { 
+      socketRef.current = io('http://localhost:5001', { 
           transports: ["websocket"]
       });
 
@@ -328,6 +328,7 @@ const getFaceDescriptor = async (imgSrc) => {
       };
     }, [examId, token]);
 
+
   // ✅ NEW LISTENER FOR LATE-JOIN ADMINS
   useEffect(() => {
     if (!socketRef.current) return;
@@ -343,16 +344,24 @@ const getFaceDescriptor = async (imgSrc) => {
     return () => socketRef.current.off('request-webrtc-offer', handleAdminRequest);
   }, []);
 
-    // Admin termination
+    // Admin termination — listen for server-initiated terminate event
     useEffect(() => {
-      if (sessionId && socketRef.current) {
-        socketRef.current.on(`terminate-session-${sessionId}`, () => {
-          setExamCancelled(true);
-          examCancelledRef.current = true; // FIX 3: sync ref
-          document.exitFullscreen?.().catch(() => { });
-        });
-      }
+      if (!sessionId || !socketRef.current) return;
+
+      const handler = () => {
+        setExamCancelled(true);
+        examCancelledRef.current = true;
+        document.exitFullscreen?.().catch(() => {});
+      };
+
+      socketRef.current.on(`terminate-session-${sessionId}`, handler);
+
+      // ✅ Cleanup: remove listener to prevent leaks
+      return () => {
+        socketRef.current?.off(`terminate-session-${sessionId}`, handler);
+      };
     }, [sessionId]);
+
 
     // ─────────────────────────────────────────────────────────────────
     //  2. Camera setup
@@ -366,7 +375,7 @@ const getFaceDescriptor = async (imgSrc) => {
         } catch { setCameraError("Proctored exams require camera permission."); }
       };
       setupMedia();
-      startAudioDetection(); // 🎤 START AUDIO
+      // 🎤 Audio detection starts only after exam begins (see isPreCheckDone effect)
 
       // Preload face-api models in background
       loadFaceApi().catch(err => console.warn("Face-api preload failed:", err));
@@ -496,6 +505,22 @@ const getFaceDescriptor = async (imgSrc) => {
     }, [isPreCheckDone]);
 
     // ─────────────────────────────────────────────────────────────────
+    //  🎤 AUDIO DETECTION — starts only when exam begins (not pre-check)
+    // ─────────────────────────────────────────────────────────────────
+    useEffect(() => {
+      if (!isPreCheckDone) return;
+      startAudioDetection();
+      return () => {
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
+        clearTimeout(audioTimerRef.current);
+        isAudioActiveRef.current = false;
+      };
+    }, [isPreCheckDone]);
+
+    // ─────────────────────────────────────────────────────────────────
     //  HEAD POSE DETECTION interval — runs every 500ms
     //  FIX 2 + FIX 3: uses await loadFaceApi() and refs for stale closures
     // ─────────────────────────────────────────────────────────────────
@@ -520,10 +545,10 @@ const getFaceDescriptor = async (imgSrc) => {
           isDetecting = false;
         }
 
-        if (!pose) return;
+        if (!pose) return; // null = model couldn't detect; don't reset the turn timer
 
         if (pose === "forward") {
-          headTurnStartRef.current = null;
+          headTurnStartRef.current = null; // Reset only on confirmed forward look
           return;
         }
 
@@ -565,9 +590,10 @@ const getFaceDescriptor = async (imgSrc) => {
           setLastAIAction("Head Turn Detected");
           setShowWarning(true);
 
+          // 🚨 After 5 head violations — terminate (not submit: marks session as terminated in DB)
           if (currentHeadViolationCount >= 5) {
             setTimeout(() => {
-              handleSubmitRef.current?.();
+              terminateExam("Excessive Head Turn Violations");
             }, 1500);
           }
         }
@@ -583,6 +609,7 @@ const getFaceDescriptor = async (imgSrc) => {
     // ─────────────────────────────────────────────────────────────────
     const runContinuousFaceCheck = async () => {
       if (!registeredDescriptorRef.current) return;
+      if (isSubmittedRef.current || examCancelledRef.current) return; // Guard: don't check after exam ends
 
       const snapshot = await takeSnapshot(); 
 
@@ -610,11 +637,11 @@ const getFaceDescriptor = async (imgSrc) => {
               setSwitchCount(prev => {
                 const next = prev + 1;
                 syncProctoring(next, vType, snapshot);
-                if (next > 10) {
+                // Backend auto-terminates at >= 10; frontend shows terminated screen
+                if (next >= 10) {
                   setExamCancelled(true);
-                  examCancelledRef.current = true; // FIX 3: sync ref
-                  document.exitFullscreen?.().catch(() => { });
-                  setTimeout(() => navigate('/'), 3000);
+                  examCancelledRef.current = true;
+                  document.exitFullscreen?.().catch(() => {});
                 }
                 return next;
               });
@@ -652,11 +679,11 @@ const getFaceDescriptor = async (imgSrc) => {
         setSwitchCount(prev => {
           const next = prev + 1;
           syncProctoring(next, vType, evidence);
-          if (next > 10) {
+          // Backend auto-terminates at >= 10; we show terminated screen to match
+          if (next >= 10) {
             setExamCancelled(true);
-            examCancelledRef.current = true; // FIX 3: sync ref
-            document.exitFullscreen?.().catch(() => { });
-            setTimeout(() => navigate('/'), 3000);
+            examCancelledRef.current = true;
+            document.exitFullscreen?.().catch(() => {});
           }
           return next;
         });
@@ -680,7 +707,8 @@ const getFaceDescriptor = async (imgSrc) => {
         mobileBufferRef.current += 1;
         multiPersonBufferRef.current = 0;
         missingFaceCountRef.current = 0;
-        if (mobileBufferRef.current >= 1 && shouldSnapshot("Mobile Phone Detected")) {
+        // Buffer of 2 frames avoids single-frame false positives
+        if (mobileBufferRef.current >= 2 && shouldSnapshot("Mobile Phone Detected")) {
           triggerViolation("Mobile Phone Detected");
         }
 
@@ -794,10 +822,10 @@ const getFaceDescriptor = async (imgSrc) => {
 
       console.log(`🎤 Audio violation ${newCount}/5`);
 
-      // 🚨 AUTO SUBMIT (same logic as head pose)
+      // 🚨 After 5 audio violations — terminate (not submit)
       if (newCount >= 5) {
         setTimeout(() => {
-          handleSubmitRef.current?.();
+          terminateExam("Excessive Audio Violations");
         }, 1500);
       }
 
@@ -846,13 +874,16 @@ const getFaceDescriptor = async (imgSrc) => {
       formData.append("violationType", vType);
 
       if (evidence) {
-        formData.append("image", evidence); // 🔥 important
+        formData.append("image", evidence, "violation.jpg"); // 🔥 filename required for multer
       }
 
-      await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/update-proctoring/${sid}`, {
+      // 🔥 Send directly to backend — Vite proxy strips binary FormData
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+      await fetch(`${backendUrl}/api/sessions/update-proctoring/${sid}`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${token}`
+          // DO NOT set Content-Type — browser sets it with boundary automatically
         },
         body: formData
       });
@@ -865,6 +896,40 @@ const getFaceDescriptor = async (imgSrc) => {
   };
 
     // ─────────────────────────────────────────────────────────────────
+    //  Terminate exam (violation-triggered) — marks session as TERMINATED in DB
+    //  Different from handleSubmit which marks it as COMPLETED
+    // ─────────────────────────────────────────────────────────────────
+    const terminateExam = async (reason = "Violation limit exceeded") => {
+      if (isSubmittedRef.current || examCancelledRef.current) return;
+
+      examCancelledRef.current = true;
+      setExamCancelled(true);
+
+      try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          await document.exitFullscreen?.();
+        }
+      } catch (e) { /* ignore */ }
+
+      if (headPoseIntervalRef.current) clearInterval(headPoseIntervalRef.current);
+
+      const sid = sessionIdRef.current;
+      if (sid) {
+        try {
+          // Call terminate endpoint — sets session.status = "terminated"
+          await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/terminate/${sid}`, {
+            method: "PUT",
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+        } catch (err) {
+          console.error("Terminate API call failed:", err);
+        }
+      }
+
+      console.log(`🚨 Exam terminated by frontend: ${reason}`);
+    };
+
+    // ─────────────────────────────────────────────────────────────────
     //  Fullscreen helper
     // ─────────────────────────────────────────────────────────────────
     const requestFullScreen = async () => {
@@ -875,8 +940,11 @@ const getFaceDescriptor = async (imgSrc) => {
       } catch (e) { console.error(e); }
     };
 
+    // mismatch attempt counter (not state, just a ref - no re-render needed)
+    const mismatchAttemptRef = useRef(0);
+
     // ─────────────────────────────────────────────────────────────────
-    //  Pre-check face verification
+    //  Pre-exam face verification — allows unlimited retries
     // ─────────────────────────────────────────────────────────────────
     const verifyFacePreCheck = async () => {
       setFaceVerifyStatus("loading");
@@ -894,16 +962,23 @@ const getFaceDescriptor = async (imgSrc) => {
 
         if (!registeredFaceImg) {
           setFaceVerifyStatus("error");
-          setVerifyMessage("No registered face found. Please register your biometric profile first.");
+          setVerifyMessage("No registered face found. Please go to Profile and register your face first.");
           return;
         }
 
-        setVerifyMessage("Analyzing registered face...");
+        setVerifyMessage("Analyzing your registered profile...");
         const regDescriptor = await getFaceDescriptor(registeredFaceImg);
 
         if (!regDescriptor) {
           setFaceVerifyStatus("error");
-          setVerifyMessage("Could not read face from your registered photo. Please contact admin.");
+          setVerifyMessage("Could not read face from your registered photo. Please contact your admin to re-upload.");
+          return;
+        }
+
+        // --- HARDWARE INTEGRITY CHECK ---
+        if (window.screen && window.screen.isExtended) {
+          setFaceVerifyStatus("error");
+          setVerifyMessage("Multiple monitors detected. Please disconnect any external displays and refresh to proceed.");
           return;
         }
 
@@ -911,21 +986,19 @@ const getFaceDescriptor = async (imgSrc) => {
         const snapshot = await takeSnapshot();
         if (!snapshot) {
           setFaceVerifyStatus("no_face");
-          setVerifyMessage("Camera not ready. Please wait and try again.");
-          return;
-        }
-
-        // --- HARDWARE INTEGRITY CHECK ---
-        if (window.screen && window.screen.isExtended) {
-          setFaceVerifyStatus("error");
-          setVerifyMessage("Integrity check failed: Multiple monitors detected. Please disconnect any external displays and refresh to proceed.");
+          setVerifyMessage("Camera not ready. Please wait a moment and try again.");
           return;
         }
 
         const liveDescriptor = await getFaceDescriptor(snapshot);
         if (!liveDescriptor) {
           setFaceVerifyStatus("no_face");
-          setVerifyMessage("No face detected in camera. Please look directly at the camera with good lighting.");
+          setVerifyMessage("No face detected. Please look directly at the camera with good lighting and try again.");
+          // Auto-reset to idle after 3s so the button stays active
+          setTimeout(() => {
+            setFaceVerifyStatus("idle");
+            setVerifyMessage("");
+          }, 3000);
           return;
         }
 
@@ -933,33 +1006,63 @@ const getFaceDescriptor = async (imgSrc) => {
         console.log(`Pre-check face distance: ${dist.toFixed(3)}`);
 
         if (dist <= 0.5) {
+          // ✅ MATCH — allow exam to start
+          mismatchAttemptRef.current = 0;
           registeredDescriptorRef.current = regDescriptor;
           setFaceVerifyStatus("matched");
-          setVerifyMessage("Identity confirmed!");
+          setVerifyMessage("Identity confirmed! You may begin.");
+
         } else {
+          // ❌ MISMATCH — increment attempt count, allow retry
+          mismatchAttemptRef.current += 1;
+          const attempt = mismatchAttemptRef.current;
+
+          const isSevereMismatch = dist > 0.7;
+
+          // Only log as suspected impersonation after 3 severe consecutive mismatches
+          if (isSevereMismatch && attempt >= 3) {
+            console.warn(`⚠️ Pre-exam impersonation suspected after ${attempt} attempts (dist: ${dist.toFixed(3)})`);
+            // Log to violations API using the violations endpoint (not sessions)
+            const formData = new FormData();
+            if (snapshot) formData.append("image", snapshot, "precheck.jpg");
+            formData.append("violationType", "Pre-Exam Impersonation Attempt");
+            formData.append("examId", examId);
+            fetch(`${import.meta.env.VITE_API_URL}/api/violations`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${token}` },
+              body: formData
+            }).catch(() => {}); // Silently fail — not critical
+          }
+
+          // Build helpful, non-scary retry message
+          const tips = [
+            "Ensure your face is fully visible",
+            "Improve lighting — avoid backlighting",
+            "Remove glasses or hat if wearing any",
+            "Look directly into the camera",
+          ];
+          const tip = tips[Math.min(attempt - 1, tips.length - 1)];
+
           setFaceVerifyStatus("mismatch");
           setVerifyMessage(
-            dist > 0.7
-              ? "Identity mismatch — face does not match registered profile. This attempt has been logged."
-              : "Partial mismatch — poor lighting or angle. Improve conditions and try again."
+            isSevereMismatch && attempt >= 3
+              ? `Identity mismatch detected (attempt ${attempt}). Ensure you are the registered account holder. Tip: ${tip}`
+              : `Face not matched. Tip: ${tip}`
           );
-          const formData = new FormData();
-          formData.append("studentId", JSON.parse(localStorage.getItem('user'))?._id || "");
-          formData.append("examId", examId);
-          formData.append("violationType", "Pre-Exam Impersonation Attempt");
-          // Use the standard violations endpoint (pre-check-violation route doesn't exist)
-          await fetch(import.meta.env.VITE_API_URL + "/api/sessions/update-proctoring/pre-check", {
-            method: "PUT",
-            headers: { "Authorization": `Bearer ${token}` },
-            body: formData
-          }).catch(() => { }); // Silently fail — this is just logging, not critical
+
+          // Auto-reset to idle after 3 seconds so user can retry immediately
+          setTimeout(() => {
+            setFaceVerifyStatus("idle");
+            setVerifyMessage(`Attempt ${attempt} failed. Please try again. Tip: ${tip}`);
+          }, 3000);
         }
       } catch (err) {
         console.error("Face verify error:", err);
         setFaceVerifyStatus("error");
-        setVerifyMessage("Verification system error. Please refresh and try again.");
+        setVerifyMessage("Verification system error. Please refresh the page and try again.");
       }
     };
+
 
     // ─────────────────────────────────────────────────────────────────
     //  Start exam session
@@ -1315,13 +1418,18 @@ const getFaceDescriptor = async (imgSrc) => {
             {faceVerifyStatus !== "matched" && (
               <button
                 onClick={verifyFacePreCheck}
-                disabled={!!cameraError || faceVerifyStatus === "loading"}
+                disabled={!!cameraError || faceVerifyStatus === "loading" || faceVerifyStatus === "mismatch" || faceVerifyStatus === "no_face"}
                 className={`w-full py-5 text-lg font-black rounded-3xl transition-all uppercase tracking-widest mb-4
-                  ${(!cameraError && faceVerifyStatus !== "loading")
+                  ${(!cameraError && faceVerifyStatus !== "loading" && faceVerifyStatus !== "mismatch" && faceVerifyStatus !== "no_face")
                     ? 'bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/20'
+                    : faceVerifyStatus === "mismatch" || faceVerifyStatus === "no_face"
+                    ? 'bg-amber-700/50 text-amber-300 cursor-wait'
                     : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
               >
-                {faceVerifyStatus === "loading" ? "Scanning..." : "🔍 Verify My Face"}
+                {faceVerifyStatus === "loading" ? "Scanning..." :
+                 faceVerifyStatus === "mismatch" || faceVerifyStatus === "no_face" ? "⏳ Resetting in 3s..." :
+                 mismatchAttemptRef.current > 0 ? `🔄 Try Again (Attempt ${mismatchAttemptRef.current + 1})` :
+                 "🔍 Verify My Face"}
               </button>
             )}
 

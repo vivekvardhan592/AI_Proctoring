@@ -24,6 +24,15 @@ const protect = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'User no longer exists' });
         }
 
+        const forwardedIps = req.headers['x-forwarded-for'];
+        const currentIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
+        if (req.user.lastLoginIp && req.user.lastLoginIp !== currentIp) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Session expired: You have logged in from another IP or device.' 
+            });
+        }
+
         next();
     } catch (error) {
         return res.status(401).json({ success: false, message: 'Not authorized, invalid token' });

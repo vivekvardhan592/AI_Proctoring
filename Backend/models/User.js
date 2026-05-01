@@ -48,6 +48,10 @@ const userSchema = new mongoose.Schema(
             enum: ['unregistered', 'pending', 'verified', 'rejected'],
             default: 'unregistered',
         },
+        lastLoginIp: {
+            type: String,
+            default: null,
+        },
     },
     { timestamps: true }
 );

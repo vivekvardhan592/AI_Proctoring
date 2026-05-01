@@ -23,6 +23,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       'http://localhost:3002',
       'http://localhost:5173',
       'http://localhost:5174',
+      'https://ai-proctoring-login.vercel.app',
+      'https://ai-proctoring-admin.vercel.app',
+      'https://ai-proctoring-student.vercel.app'
     ];
 
 const app = express();

@@ -23,6 +23,8 @@ const registerUser = async (req, res, next) => {
         }
 
         const normalizedInstitue = institution.trim().toLowerCase();
+        const forwardedIps = req.headers['x-forwarded-for'];
+        const userIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
 
         // One Admin per institution rule
         if (role === 'admin') {
@@ -35,7 +37,7 @@ const registerUser = async (req, res, next) => {
              }
         }
 
-        const user = await User.create({ name, email, password, role, institution: normalizedInstitue });
+        const user = await User.create({ name, email, password, role, institution: normalizedInstitue, lastLoginIp: userIp });
 
         res.status(201).json({
             success: true,
@@ -94,6 +96,11 @@ const loginUser = async (req, res, next) => {
                 message: 'Invalid institution/company name for this user.' 
             });
         }
+
+        const forwardedIps = req.headers['x-forwarded-for'];
+        const userIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
+        user.lastLoginIp = userIp;
+        await user.save({ validateBeforeSave: false });
 
         res.status(200).json({
             success: true,

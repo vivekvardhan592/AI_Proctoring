@@ -61,10 +61,20 @@ export default function StudentDashboard() {
   const socketRef  = useRef(null);
   const token      = localStorage.getItem('token');
 
-  const [user] = useState(() => {
+  // Read user fresh from localStorage (App.jsx bootstraps this with server data)
+  const [user, setUser] = useState(() => {
     const raw = localStorage.getItem('user');
     return raw ? JSON.parse(raw) : null;
   });
+
+  // Re-read user from localStorage after mount to catch any bootstrap updates
+  useEffect(() => {
+    const raw = localStorage.getItem('user');
+    if (raw) {
+      const freshUser = JSON.parse(raw);
+      setUser(freshUser);
+    }
+  }, []);
 
   const cached = readCache();
   const [data, setData] = useState(cached || { upcomingExams: [], attemptedExams: [], ongoingExams: [] });
@@ -96,7 +106,7 @@ export default function StudentDashboard() {
       finally { setLoading(false); }
     })();
 
-    socketRef.current = io(import.meta.env.VITE_API_URL);
+    socketRef.current = io('http://localhost:5001');
     socketRef.current.emit('student-join', { userId: user._id, name: user.name });
     return () => socketRef.current?.disconnect();
   }, [token, user]);

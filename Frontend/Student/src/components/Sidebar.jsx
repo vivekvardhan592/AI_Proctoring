@@ -17,7 +17,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
   const navigate  = useNavigate();
 
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_API_URL);
+    const socket = io('http://localhost:5001');
     const userStr = localStorage.getItem('user');
     if (userStr) {
       const user = JSON.parse(userStr);

@@ -46,7 +46,8 @@ export default function ViolationGallery() {
   useEffect(() => {
     const fetchImages = async () => {
       try {
-        const res = await fetch(import.meta.env.VITE_API_URL + "/api/sessions", {
+        // 🔥 Use dedicated endpoint — /api/sessions strips violationLogs for performance
+        const res = await fetch(import.meta.env.VITE_API_URL + "/api/sessions/violation-images", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -59,7 +60,7 @@ export default function ViolationGallery() {
                 if (log.evidence && log.evidence.startsWith("http")) {
                   allCapturedImages.push({
                     ...log,
-                    logIndex, // ✅ ADD THIS
+                    logIndex,
                     sessionId: session._id,
                     studentName: session.studentId?.name || "Unknown",
                     studentEmail: session.studentId?.email || "N/A",
@@ -89,7 +90,7 @@ export default function ViolationGallery() {
   }, [token]);
 
   useEffect(() => {
-  const socket = io(import.meta.env.VITE_API_URL);
+  const socket = io('http://localhost:5001');
 
   socket.on("violation-alert", (data) => {
     const newLogs = data.violationLogs

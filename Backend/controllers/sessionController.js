@@ -143,11 +143,7 @@ const endExam = async (req, res, next) => {
 
 const terminateSession = async (req, res, next) => {
   try {
-    const session = await ExamSession.findByIdAndUpdate(
-      req.params.sessionId,
-      { status: "terminated", endTime: new Date() },
-      { new: true },
-    )
+    const session = await ExamSession.findById(req.params.sessionId)
       .populate("studentId", "name")
       .populate("examId", "title");
 
@@ -156,6 +152,18 @@ const terminateSession = async (req, res, next) => {
         .status(404)
         .json({ success: false, message: "Session not found" });
     }
+
+    // 🔒 Students can only terminate their own sessions
+    if (req.user.role === 'student' &&
+      session.studentId._id.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorized to terminate this session" });
+    }
+
+    session.status = "terminated";
+    session.endTime = new Date();
+    await session.save();
 
     const io = req.app.get("socketio");
     io.emit("session-live-update", session);
@@ -183,29 +191,38 @@ const updateSessionProctoring = async (req, res, next) => {
         .status(404)
         .json({ success: false, message: "Session not found" });
 
+    // 🔒 Security: ensure the student can only update their own session
+    if (session.studentId.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorized to update this session" });
+    }
+
     const oldV = session.violationsCount;
 
     if (violationsCount !== undefined)
       session.violationsCount = violationsCount;
 
     if (violationType) {
-      // ✅ CLOUDINARY UPLOAD (REPLACES BASE64 STORAGE)
       let imageUrl = "";
 
       if (req.file) {
         const streamifier = require("streamifier");
 
-        imageUrl = await new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: "violations" },
-            (error, result) => {
-              if (error) return reject(error);
-              resolve(result.secure_url);
-            },
-          );
-
-          streamifier.createReadStream(req.file.buffer).pipe(stream);
-        });
+        try {
+          imageUrl = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: "violations" },
+              (error, result) => {
+                if (error) return reject(error);
+                resolve(result.secure_url);
+              },
+            );
+            streamifier.createReadStream(req.file.buffer).pipe(stream);
+          });
+        } catch (uploadErr) {
+          imageUrl = ""; // continue without image if upload fails
+        }
       }
 
       session.lastViolationType = violationType;
@@ -271,7 +288,7 @@ const getSessions = async (req, res, next) => {
     // ⚡ Exclude heavy arrays (answers[], violationLogs[]) from list view
     // They are only needed in getSessionById which has its own endpoint
     let sessions = await ExamSession.find(filter)
-      .select('-answers -violationLogs') // 🔥 excludes heavy nested arrays
+      .select('-answers -violationLogs') //  excludes heavy nested arrays
       .populate("studentId", "name email")
       .populate("examId", "title duration totalMarks passingMarks")
       .sort({ startTime: -1 })
@@ -366,7 +383,7 @@ const deleteViolationImage = async (req, res, next) => {
 const logPreCheckViolation = async (req, res, next) => {
   try {
     const { examId, violationType } = req.body;
-    
+
     // We create a dummy terminated session so it shows up in admin logs
     const session = await ExamSession.create({
       studentId: req.user._id,
@@ -377,9 +394,9 @@ const logPreCheckViolation = async (req, res, next) => {
       violationsCount: 1,
       lastViolationType: violationType,
       violationLogs: [{
-         type: violationType,
-         category: "visual",
-         timestamp: new Date()
+        type: violationType,
+        category: "visual",
+        timestamp: new Date()
       }]
     });
 
@@ -397,6 +414,31 @@ const logPreCheckViolation = async (req, res, next) => {
   }
 };
 
+// @desc    Get all sessions that have violation evidence images (admin only)
+// @route   GET /api/sessions/violation-images
+// @access  Private (Admin only)
+const getViolationImages = async (req, res, next) => {
+  try {
+    // Scope to admin's institution
+    const exams = await Exam.find({ institution: req.user.institution }).select('_id').lean();
+    const examIds = exams.map(e => e._id);
+
+    // Only fetch sessions that have at least one violationLog with an evidence URL
+    const sessions = await ExamSession.find({
+      examId: { $in: examIds },
+      'violationLogs.0': { $exists: true }   // has at least 1 violation log
+    })
+      .select('violationLogs studentId examId')  // only needed fields
+      .populate('studentId', 'name email')
+      .populate('examId', 'title')
+      .lean();
+
+    res.json({ success: true, data: sessions });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   startExam,
   endExam,
@@ -407,4 +449,5 @@ module.exports = {
   clearAllViolationImages,
   deleteViolationImage,
   logPreCheckViolation,
+  getViolationImages,
 };

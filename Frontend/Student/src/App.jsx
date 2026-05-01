@@ -10,10 +10,10 @@ const ReviewResult = lazy(() => import('./pages/ReviewResult'));
 const Profile = lazy(() => import('./pages/Profile'));
 const ExamPage = lazy(() => import('./pages/ExamPage'));
 
-// Protected Route Component
+// Protected Route Component — reads from localStorage (kept fresh by App bootstrap)
 const ProtectedRoute = ({ children, requireVerification = false }) => {
   const token = localStorage.getItem('token');
-  const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null;
+  const user  = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null;
 
   useEffect(() => {
     if (!token || !user) {
@@ -32,42 +32,72 @@ const ProtectedRoute = ({ children, requireVerification = false }) => {
   return children;
 };
 
-function App(){
+function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check URL for auth params from cross-origin login
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    const urlUser = urlParams.get('user');
+    const bootstrap = async () => {
+      // 1️⃣ Read token/user from URL params (cross-origin login redirect)
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken  = urlParams.get('token');
+      const urlUser   = urlParams.get('user');
 
-    if (urlToken && urlUser) {
-      localStorage.setItem('token', urlToken);
-      localStorage.setItem('user', urlUser);
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    const user = userStr ? JSON.parse(userStr) : null;
-    
-    console.log("Auth Check:", { hasToken: !!token, hasUser: !!user, role: user?.role });
-
-    if (token && user && (user.role === 'student' || user.role === 'admin')) {
-      if (user.role === 'admin') {
-         console.warn("Admin detected in Student portal, redirecting...");
-         window.location.href = import.meta.env.VITE_ADMIN_URL;
-      } else {
-         // eslint-disable-next-line
-         setIsAuthenticated(true);
+      if (urlToken && urlUser) {
+        localStorage.setItem('token', urlToken);
+        localStorage.setItem('user', urlUser);
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
-    } else {
-      console.error("Auth Failure: Redirecting to login");
-      window.location.href = import.meta.env.VITE_LOGIN_URL;
-    }
-    setLoading(false);
+
+      const token   = localStorage.getItem('token');
+      const userStr = localStorage.getItem('user');
+      const user    = userStr ? JSON.parse(userStr) : null;
+
+      if (!token || !user) {
+        console.error("No token/user — redirecting to login");
+        window.location.href = import.meta.env.VITE_LOGIN_URL;
+        return;
+      }
+
+      if (user.role === 'admin') {
+        console.warn("Admin detected in Student portal — redirecting");
+        window.location.href = import.meta.env.VITE_ADMIN_URL;
+        return;
+      }
+
+      // 2️⃣ Always fetch fresh profile so verificationStatus is never stale
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/auth/me`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (res.status === 401) {
+          // Token invalid / expired — force re-login
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = import.meta.env.VITE_LOGIN_URL;
+          return;
+        }
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data) {
+            // Overwrite stale user with fresh server data (includes latest verificationStatus)
+            localStorage.setItem('user', JSON.stringify(data.data));
+            console.log("✅ Fresh profile loaded:", data.data.verificationStatus);
+          }
+        }
+      } catch (err) {
+        // Network error — still allow access using cached data so offline is graceful
+        console.warn("Could not refresh profile from server:", err.message);
+      }
+
+      setIsAuthenticated(true);
+      setLoading(false);
+    };
+
+    bootstrap();
   }, []);
 
   if (loading) {
@@ -80,21 +110,25 @@ function App(){
   }
 
   if (!isAuthenticated) {
-    return null; // Will redirect automatically
+    return null;
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-      <Suspense fallback={<div className="flex justify-center items-center h-full pt-20"><div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div></div>}>
+      <Suspense fallback={
+        <div className="flex justify-center items-center h-full pt-20">
+          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        </div>
+      }>
         <Routes>
-          <Route path="/" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
+          <Route path="/"                  element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
           <Route path="/student/dashboard" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
-          <Route path="/upcomingexams" element={<ProtectedRoute requireVerification={true}><UpcomingExams /></ProtectedRoute>} />
-          <Route path="/MyResult" element={<ProtectedRoute requireVerification={true}><MyResults/></ProtectedRoute>} />
+          <Route path="/upcomingexams"     element={<ProtectedRoute requireVerification={true}><UpcomingExams /></ProtectedRoute>} />
+          <Route path="/MyResult"          element={<ProtectedRoute requireVerification={true}><MyResults /></ProtectedRoute>} />
           <Route path="/review/:sessionId" element={<ProtectedRoute requireVerification={true}><ReviewResult /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-          <Route path="/exam/:examId" element={<ProtectedRoute requireVerification={true}><ExamPage /></ProtectedRoute>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/profile"           element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/exam/:examId"      element={<ProtectedRoute requireVerification={true}><ExamPage /></ProtectedRoute>} />
+          <Route path="*"                  element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </div>

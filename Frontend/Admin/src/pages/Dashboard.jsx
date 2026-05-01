@@ -55,14 +55,16 @@ function ViolationRowSkeleton() {
 // localStorage cache helpers (stale-while-revalidate)
 // ─────────────────────────────────────────────────────────────────
 const CACHE_KEY = 'admin_dashboard_cache';
-const CACHE_TTL = 30_000; // 30 seconds
+const CACHE_TTL = 15_000; // 15 seconds
 
 function readCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const { ts, data } = JSON.parse(raw);
+    // Invalidate cache if it has empty sessions/exams (stale 0s)
     if (Date.now() - ts > CACHE_TTL) return null;
+    if (!data.sessions?.length && !data.exams?.length) return null;
     return data;
   } catch {
     return null;
@@ -82,30 +84,24 @@ export default function Dashboard() {
   const { token } = useAuth();
   const navigate = useNavigate();
 
-  // Initialise from cache so returning users see content INSTANTLY
+  // Always start fresh — don't trust stale cache with 0s
   const cached = readCache();
   const [data, setData] = useState(cached || { sessions: [], exams: [] });
-  const [onlineCount, setOnlineCount] = useState(cached ? null : 0);
-  const [loading, setLoading] = useState(!cached); // skip spinner if cached
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const socketRef = useRef(null);
 
   useEffect(() => {
     if (!token) return;
 
+    // ── One-time initial fetch to populate existing data ──────────
     const fetchData = async () => {
       try {
-        // Fire all 3 requests in parallel
         const [sRes, eRes, oRes] = await Promise.all([
-          fetch(import.meta.env.VITE_API_URL + '/api/sessions', {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          fetch(import.meta.env.VITE_API_URL + '/api/exams', {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          fetch(import.meta.env.VITE_API_URL + '/api/stats/online', {
-            headers: { Authorization: `Bearer ${token}` }
-          })
+          fetch('/api/sessions',     { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/exams',        { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/stats/online', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
         const [sData, eData, oData] = await Promise.all([
@@ -115,7 +111,7 @@ export default function Dashboard() {
         if (sData.success && eData.success) {
           const fresh = { sessions: sData.data, exams: eData.data };
           setData(fresh);
-          writeCache(fresh); // persist for stale-while-revalidate
+          writeCache(fresh);
         } else {
           setError('Failed to load dashboard data.');
         }
@@ -129,27 +125,30 @@ export default function Dashboard() {
       }
     };
 
-    fetchData();
+    fetchData(); // ← runs once on mount
 
-    // Socket for real-time updates
-    socketRef.current = io(import.meta.env.VITE_API_URL);
+    // ── Socket.IO: all subsequent updates are real-time ──────────
+    socketRef.current = io('http://localhost:5001');
 
+    // Live student count
     socketRef.current.on('online-students-count', (count) => {
       setOnlineCount(count);
     });
 
+    // New session started OR existing session updated (end, terminate, violation)
     socketRef.current.on('session-live-update', (session) => {
       setData(prev => {
         const exists = prev.sessions.find(s => s._id === session._id);
         const updatedSessions = exists
           ? prev.sessions.map(s => s._id === session._id ? session : s)
-          : [session, ...prev.sessions];
+          : [session, ...prev.sessions]; // prepend new sessions to top
         const fresh = { ...prev, sessions: updatedSessions };
         writeCache(fresh);
         return fresh;
       });
     });
 
+    // Violation alert (also updates session in place)
     socketRef.current.on('violation-alert', (session) => {
       setData(prev => ({
         ...prev,
