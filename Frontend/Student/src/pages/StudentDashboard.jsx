@@ -106,7 +106,7 @@ export default function StudentDashboard() {
       finally { setLoading(false); }
     })();
 
-    socketRef.current = io('http://localhost:5001');
+    socketRef.current = io(import.meta.env.VITE_API_URL);
     socketRef.current.emit('student-join', { userId: user._id, name: user.name });
     return () => socketRef.current?.disconnect();
   }, [token, user]);

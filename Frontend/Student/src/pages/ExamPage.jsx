@@ -253,7 +253,7 @@ const getFaceDescriptor = async (imgSrc) => {
     //  1. Socket + fetch exam
     // ─────────────────────────────────────────────────────────────────
     useEffect(() => {
-      socketRef.current = io('http://localhost:5001', { 
+      socketRef.current = io(import.meta.env.VITE_API_URL, { 
           transports: ["websocket"]
       });
 
@@ -878,7 +878,7 @@ const getFaceDescriptor = async (imgSrc) => {
       }
 
       // 🔥 Send directly to backend — Vite proxy strips binary FormData
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL;
       await fetch(`${backendUrl}/api/sessions/update-proctoring/${sid}`, {
         method: "PUT",
         headers: {
