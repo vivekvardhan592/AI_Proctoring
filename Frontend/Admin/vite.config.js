@@ -12,7 +12,7 @@ export default defineConfig({
     port: 3001,
     proxy: {
       '/api': {
-        target: import.meta.env.VITE_API_URL,
+        target: 'https://ai-proctoring-drrf.onrender.com',
         changeOrigin: true,
       },
     },
