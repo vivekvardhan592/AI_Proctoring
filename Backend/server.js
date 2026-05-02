@@ -16,7 +16,7 @@ connectDB();
 connectRedis();
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',')
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : [
       'http://localhost:3000',
       'http://localhost:3001',
@@ -35,7 +35,12 @@ app.use(compression());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (origin.includes('vercel.app') || origin.includes('localhost')) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
     methods: ["GET", "POST", "PUT"],
     credentials: true
   }
@@ -44,9 +49,25 @@ const io = new Server(server, {
 // Attach io to app
 app.set('socketio', io);
 
-// Enable CORS
+// Enable CORS with a resilient dynamic origin check
 app.use(cors({
-  origin: allowedOrigins,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check exact match from allowedOrigins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Fallback: If it's a Vercel app or localhost, allow it automatically
+    // This prevents CORS breaking just because of a typo in Render ENV vars
+    if (origin.includes('vercel.app') || origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 

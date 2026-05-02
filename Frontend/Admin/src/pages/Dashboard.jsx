@@ -99,9 +99,9 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const [sRes, eRes, oRes] = await Promise.all([
-          fetch('/api/sessions',     { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/exams',        { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/stats/online', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${import.meta.env.VITE_API_URL}/api/sessions`,     { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${import.meta.env.VITE_API_URL}/api/exams`,        { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${import.meta.env.VITE_API_URL}/api/stats/online`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
         const [sData, eData, oData] = await Promise.all([
