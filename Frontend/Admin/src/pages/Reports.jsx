@@ -145,6 +145,8 @@ export default function Reports() {
   const computedTrend = useMemo(() => {
     const days = [];
     const now = new Date();
+    let lastValidScore = 100;
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
@@ -154,15 +156,52 @@ export default function Reports() {
       const daySessions = data.sessions.filter(s => s.startTime && new Date(s.startTime).toISOString().split('T')[0] === dayStr);
       const total = daySessions.length;
       const viol = daySessions.reduce((a, s) => a + (s.violationsCount || 0), 0);
-      const integrity = total > 0 ? parseFloat(Math.max(0, Math.min(100, 100 - (viol / total * 5))).toFixed(1)) : null;
+      
+      let integrity = 100;
+      let hasData = false;
 
-      days.push({ date: label, score: integrity });
+      if (total > 0) {
+        integrity = parseFloat(Math.max(0, Math.min(100, 100 - (viol / total * 5))).toFixed(1));
+        lastValidScore = integrity;
+        hasData = true;
+      } else {
+        // If no exams, visually inherit the last known score or 100 so the line stays flat and continuous
+        integrity = lastValidScore;
+      }
+
+      days.push({ date: label, score: integrity, hasData });
     }
     return days;
   }, [data.sessions]);
 
-  const chartData = trendData.length > 0 ? trendData.map(d => ({ date: d.date, score: d.integrity })) : computedTrend;
-  const hasChartData = chartData.some(d => d.score !== null);
+  const chartData = trendData.length > 0 ? trendData.map(d => ({ 
+    date: d.date, 
+    score: d.integrity !== null ? d.integrity : 100,
+    hasData: d.integrity !== null 
+  })) : computedTrend;
+  
+  const hasChartData = true; // We always show the graph now (backfilled with 100s)
+
+  // Custom Tooltip for Reports Trend
+  const ReportsTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
+    return (
+      <div className="bg-white shadow-2xl border border-slate-200 rounded-2xl px-5 py-4 text-left">
+        <p className="text-slate-900 font-bold text-sm mb-2">{label}</p>
+        <div className="space-y-1.5 text-xs">
+          {d.hasData ? (
+            <div className="flex justify-between gap-6">
+              <span className="text-slate-500 font-medium">Integrity</span>
+              <span className="font-bold text-indigo-600">{d.score}%</span>
+            </div>
+          ) : (
+            <span className="text-slate-400 italic">No exams this day</span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   if (loading) {
     return <div className="max-w-7xl mx-auto pb-12 animate-pulse"><div className="h-10 bg-slate-200 rounded w-1/4 mb-12"></div><div className="grid grid-cols-4 gap-6"><div className="h-40 bg-slate-200 rounded-2xl"></div><div className="h-40 bg-slate-200 rounded-2xl"></div><div className="h-40 bg-slate-200 rounded-2xl"></div><div className="h-40 bg-slate-200 rounded-2xl"></div></div></div>;
@@ -235,21 +274,19 @@ export default function Reports() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="date" stroke="#94a3b8" tickLine={false} axisLine={false} />
                     <YAxis domain={[0, 100]} stroke="#94a3b8" tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: 'none', 
-                        borderRadius: '16px',
-                        boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'
-                      }} 
-                    />
+                    <Tooltip content={<ReportsTooltip />} />
                     <Area 
                       type="monotone" 
                       dataKey="score" 
                       stroke="#4f46e5" 
                       strokeWidth={4} 
                       fill="url(#colorScore)"
-                      dot={{ fill: '#4f46e5', r: 4, strokeWidth: 2, stroke: '#fff' }}
+                      dot={({ cx, cy, payload }) => {
+                        if (!payload.hasData) return null; // Only show dots on days with actual data
+                        return (
+                          <circle cx={cx} cy={cy} r={4} fill="#4f46e5" stroke="#fff" strokeWidth={2} />
+                        );
+                      }}
                       activeDot={{ r: 8, strokeWidth: 0 }}
                       connectNulls
                     />

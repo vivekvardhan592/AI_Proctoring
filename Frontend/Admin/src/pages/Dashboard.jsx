@@ -209,6 +209,8 @@ export default function Dashboard() {
   const computedTrend = (() => {
     const days = [];
     const now = new Date();
+    let lastValidScore = 100;
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
@@ -222,19 +224,31 @@ export default function Dashboard() {
 
       const total = daySessions.length;
       const viol = daySessions.reduce((a, s) => a + (s.violationsCount || 0), 0);
-      const integrity = total > 0
-        ? parseFloat(Math.max(0, Math.min(100, 100 - (viol / total * 5))).toFixed(1))
-        : null;
+      
+      let integrity = 100;
+      let hasData = false;
 
-      days.push({ date: label, integrity, sessions: total, violations: viol, terminated: 0 });
+      if (total > 0) {
+        integrity = parseFloat(Math.max(0, Math.min(100, 100 - (viol / total * 5))).toFixed(1));
+        lastValidScore = integrity;
+        hasData = true;
+      } else {
+        integrity = lastValidScore;
+      }
+
+      days.push({ date: label, integrity, sessions: total, violations: viol, terminated: 0, hasData });
     }
     return days;
   })();
 
   // Use backend data if available, otherwise client-side fallback
-  const chartData = trendData.length > 0 ? trendData : computedTrend;
-  const hasChartData = chartData.some(d => d.integrity !== null);
-
+  const chartData = trendData.length > 0 ? trendData.map(d => ({
+    ...d,
+    hasData: d.integrity !== null,
+    integrity: d.integrity !== null ? d.integrity : 100
+  })) : computedTrend;
+  
+  const hasChartData = true; // Always show the graph now
 
   // Custom tooltip for the chart
   const ChartTooltip = ({ active, payload, label }) => {
@@ -244,7 +258,7 @@ export default function Dashboard() {
       <div className="bg-white shadow-2xl border border-slate-200 rounded-2xl px-5 py-4 text-left">
         <p className="text-slate-900 font-bold text-sm mb-2">{label}</p>
         <div className="space-y-1.5 text-xs">
-          {d.integrity !== null ? (
+          {d.hasData ? (
             <>
               <div className="flex justify-between gap-6">
                 <span className="text-slate-500 font-medium">Integrity</span>
@@ -441,7 +455,12 @@ export default function Dashboard() {
                       stroke="#6366f1"
                       strokeWidth={3}
                       fill="url(#integrityGradient)"
-                      dot={{ r: 5, fill: '#6366f1', stroke: '#fff', strokeWidth: 2 }}
+                      dot={({ cx, cy, payload }) => {
+                        if (!payload.hasData) return null;
+                        return (
+                          <circle cx={cx} cy={cy} r={5} fill="#6366f1" stroke="#fff" strokeWidth={2} />
+                        );
+                      }}
                       activeDot={{ r: 7, fill: '#4f46e5', stroke: '#fff', strokeWidth: 3 }}
                       connectNulls={true}
                     />
