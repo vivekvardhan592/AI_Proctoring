@@ -415,7 +415,7 @@ const getFaceDescriptor = async (imgSrc) => {
       if (streamRef.current && videoRef.current && !videoRef.current.srcObject) {
         videoRef.current.srcObject = streamRef.current;
       }
-    }, [isPreCheckDone]);
+    }, [isPreCheckDone, loading]);
 
     // ─────────────────────────────────────────────────────────────────
     //  3. YOLO + continuous face check — only after exam starts
