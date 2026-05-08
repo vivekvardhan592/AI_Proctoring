@@ -31,7 +31,7 @@ export default function LiveMonitoring() {
 
   const fetchLiveSessions = async () => {
     try {
-      const res = await fetch("/api/sessions", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/sessions`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       const data = await res.json();
@@ -176,7 +176,7 @@ export default function LiveMonitoring() {
     delete streamsRef.current[sessionId];
 
     try {
-      await fetch(`/api/sessions/terminate/${sessionId}`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/terminate/${sessionId}`, {
         method: 'PUT',
         headers: { "Authorization": `Bearer ${token}` }
       });
