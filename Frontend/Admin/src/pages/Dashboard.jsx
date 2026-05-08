@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -7,6 +7,10 @@ import {
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer
+} from 'recharts';
 
 // ─────────────────────────────────────────────────────────────────
 // Skeleton component — renders immediately while data loads
@@ -197,6 +201,73 @@ export default function Dashboard() {
     },
   ];
 
+  // ── Integrity Trend: compute daily data for last 7 days ────────
+  const trendData = useMemo(() => {
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      // Sessions that started on this day
+      const daySessions = data.sessions.filter(s => {
+        if (!s.startTime) return false;
+        return new Date(s.startTime).toISOString().split('T')[0] === dayStr;
+      });
+
+      const totalSessions = daySessions.length;
+      const dayViolations = daySessions.reduce((acc, s) => acc + (s.violationsCount || 0), 0);
+
+      // Integrity = 100 - (violations per session * 5), clamped 0-100
+      const integrity = totalSessions > 0
+        ? Math.max(0, Math.min(100, 100 - (dayViolations / totalSessions * 5)))
+        : null; // null = no data for this day
+
+      days.push({
+        date: label,
+        integrity: integrity !== null ? parseFloat(integrity.toFixed(1)) : null,
+        sessions: totalSessions,
+        violations: dayViolations,
+      });
+    }
+
+    return days;
+  }, [data.sessions]);
+
+  // Custom tooltip for the chart
+  const ChartTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
+    return (
+      <div className="bg-white shadow-2xl border border-slate-200 rounded-2xl px-5 py-4 text-left">
+        <p className="text-slate-900 font-bold text-sm mb-2">{label}</p>
+        <div className="space-y-1.5 text-xs">
+          {d.integrity !== null ? (
+            <>
+              <div className="flex justify-between gap-6">
+                <span className="text-slate-500 font-medium">Integrity</span>
+                <span className="font-bold text-indigo-600">{d.integrity}%</span>
+              </div>
+              <div className="flex justify-between gap-6">
+                <span className="text-slate-500 font-medium">Sessions</span>
+                <span className="font-bold text-slate-700">{d.sessions}</span>
+              </div>
+              <div className="flex justify-between gap-6">
+                <span className="text-slate-500 font-medium">Violations</span>
+                <span className={`font-bold ${d.violations > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{d.violations}</span>
+              </div>
+            </>
+          ) : (
+            <span className="text-slate-400 italic">No exams this day</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-full pb-12">
 
@@ -324,10 +395,56 @@ export default function Dashboard() {
                 {avgIntegrity}% AVG
               </div>
             </div>
-            <div className="h-64 flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
-                Analytics Visualization Engine Loading...
-              </p>
+            <div className="h-64">
+              {loading && !cached ? (
+                <div className="h-full flex items-center justify-center bg-slate-50 rounded-2xl">
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-xs animate-pulse">
+                    Loading chart data...
+                  </p>
+                </div>
+              ) : trendData.every(d => d.integrity === null) ? (
+                <div className="h-full flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
+                    No exam data in the last 7 days
+                  </p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="integrityGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11, fontWeight: 600, fill: '#94a3b8' }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      tick={{ fontSize: 11, fontWeight: 600, fill: '#94a3b8' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={v => `${v}%`}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="integrity"
+                      stroke="#6366f1"
+                      strokeWidth={3}
+                      fill="url(#integrityGradient)"
+                      dot={{ r: 5, fill: '#6366f1', stroke: '#fff', strokeWidth: 2 }}
+                      activeDot={{ r: 7, fill: '#4f46e5', stroke: '#fff', strokeWidth: 3 }}
+                      connectNulls={true}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
