@@ -117,9 +117,9 @@ const getFaceDescriptor = async (imgSrc) => {
     try {
       const detection = await window.faceapi
         .detectSingleFace(videoEl, new window.faceapi.TinyFaceDetectorOptions({
-  scoreThreshold: 0.25,
-  inputSize: 320
-}))
+          scoreThreshold: 0.4,   // raised from 0.25 — reject low-quality detections
+          inputSize: 320
+        }))
         .withFaceLandmarks(true);
 
       if (!detection) return null;
@@ -147,10 +147,11 @@ const getFaceDescriptor = async (imgSrc) => {
       const faceHeight = chinY - eyeMidY;
       const nosePitchRatio = (noseTip.y - eyeMidY) / faceHeight;
 
-      if (yawRatio < 0.38) return "right";
-      if (yawRatio > 0.62) return "left";
-      if (nosePitchRatio < 0.30) return "up";
-      if (nosePitchRatio > 0.70) return "down";
+      // Widened thresholds — only flag deliberate, significant turns
+      if (yawRatio < 0.32) return "right";
+      if (yawRatio > 0.68) return "left";
+      if (nosePitchRatio < 0.22) return "up";
+      if (nosePitchRatio > 0.78) return "down";
 
       return "forward";
     } catch {
@@ -231,6 +232,7 @@ const getFaceDescriptor = async (imgSrc) => {
     const headTurnStartRef = useRef(null);
     const headPoseViolationCountRef = useRef(0);
     const headPoseIntervalRef = useRef(null);
+    const consecutiveTurnFramesRef = useRef(0); // consecutive "turned" detections before starting timer
 
     // FIX 4: State variable for head violation count so JSX re-renders
     const [headViolationCount, setHeadViolationCount] = useState(0);
@@ -528,6 +530,7 @@ const getFaceDescriptor = async (imgSrc) => {
       if (!isPreCheckDone) return;
 
       let isDetecting = false;
+      const CONSECUTIVE_FRAMES_NEEDED = 3; // require 3 consecutive turned frames to start timer
 
       headPoseIntervalRef.current = setInterval(async () => {
         if (isSubmittedRef.current || examCancelledRef.current) return;
@@ -548,31 +551,41 @@ const getFaceDescriptor = async (imgSrc) => {
         if (!pose) return; // null = model couldn't detect; don't reset the turn timer
 
         if (pose === "forward") {
-          headTurnStartRef.current = null; // Reset only on confirmed forward look
+          headTurnStartRef.current = null;
+          consecutiveTurnFramesRef.current = 0; // reset buffer on forward look
           return;
+        }
+
+        // Require multiple consecutive "turned" frames before starting the timer
+        // This filters out single-frame jitter / noisy detections
+        consecutiveTurnFramesRef.current += 1;
+
+        if (consecutiveTurnFramesRef.current < CONSECUTIVE_FRAMES_NEEDED) {
+          return; // not enough consecutive frames yet — don't start timer
         }
 
         const now = Date.now();
 
         if (!headTurnStartRef.current) {
           headTurnStartRef.current = now;
-          console.log(`👀 Head turned: ${pose}`);
+          console.log(`👀 Head turned (confirmed): ${pose}`);
           return;
         }
 
         const turnDuration = (now - headTurnStartRef.current) / 1000;
 
-        if (turnDuration >= 3) {
+        if (turnDuration >= 5) { // raised from 3s — 5s sustained turn to flag
           const vType = "Head Turn Detected";
           const evidence = await takeSnapshot();
 
           const shouldLog =
             lastViolationLogRef.current.type !== vType ||
-            (now - lastViolationLogRef.current.timestamp) > 8000;
+            (now - lastViolationLogRef.current.timestamp) > 15000; // cooldown raised from 8s to 15s
 
           if (!shouldLog) return;
 
           headTurnStartRef.current = null;
+          consecutiveTurnFramesRef.current = 0;
 
           lastViolationLogRef.current = { type: vType, timestamp: now };
           headPoseViolationCountRef.current += 1;
@@ -597,7 +610,7 @@ const getFaceDescriptor = async (imgSrc) => {
             }, 1500);
           }
         }
-      }, 500);
+      }, 800); // slowed from 500ms to 800ms — reduces noisy jitter
 
       return () => {
         if (headPoseIntervalRef.current) clearInterval(headPoseIntervalRef.current);
