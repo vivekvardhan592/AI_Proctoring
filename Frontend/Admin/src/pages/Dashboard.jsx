@@ -204,6 +204,38 @@ export default function Dashboard() {
     },
   ];
 
+  // ── Fallback: compute trend client-side from fetched sessions ───
+  // Used when backend /integrity-trend hasn't deployed yet or returns empty
+  const computedTrend = (() => {
+    const days = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0];
+      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      const daySessions = data.sessions.filter(s => {
+        if (!s.startTime) return false;
+        return new Date(s.startTime).toISOString().split('T')[0] === dayStr;
+      });
+
+      const total = daySessions.length;
+      const viol = daySessions.reduce((a, s) => a + (s.violationsCount || 0), 0);
+      const integrity = total > 0
+        ? parseFloat(Math.max(0, Math.min(100, 100 - (viol / total * 5))).toFixed(1))
+        : null;
+
+      days.push({ date: label, integrity, sessions: total, violations: viol, terminated: 0 });
+    }
+    return days;
+  })();
+
+  // Use backend data if available, otherwise client-side fallback
+  const chartData = trendData.length > 0 ? trendData : computedTrend;
+  const hasChartData = chartData.some(d => d.integrity !== null);
+
+
   // Custom tooltip for the chart
   const ChartTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -373,7 +405,7 @@ export default function Dashboard() {
                     Loading chart data...
                   </p>
                 </div>
-              ) : trendData.every(d => d.integrity === null) ? (
+              ) : !hasChartData ? (
                 <div className="h-full flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
                     No exam data in the last 7 days
@@ -381,7 +413,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <AreaChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                     <defs>
                       <linearGradient id="integrityGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
