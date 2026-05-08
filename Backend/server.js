@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 const { connectRedis } = require('./config/redis');
 const errorHandler = require('./middleware/errorHandler');
+const { protect } = require('./middleware/auth');
 
 // Load env vars
 dotenv.config();
@@ -76,22 +77,42 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: false }));
 
 // --- Socket.IO Logic ---
-let onlineStudents = new Map(); // socketId -> { userId, name }
+let onlineStudents = new Map(); // socketId -> { userId, name, institution }
+
+// Helper function to get count for an institution
+const getOnlineCountForInstitution = (institution) => {
+  let count = 0;
+  for (const student of onlineStudents.values()) {
+    if (student.institution === institution) count++;
+  }
+  return count;
+};
 
 io.on('connection', (socket) => {
 
+  // 👔 Admin registers to listen to their institution's events
+  socket.on('admin-join', ({ institution }) => {
+    if (institution) {
+      socket.join(institution);
+    }
+  });
+
   // 👤 Student registers themselves when joining
-  socket.on('student-join', ({ userId, name }) => {
-    if (userId && name) {
-      onlineStudents.set(socket.id, { userId, name });
-      io.emit('online-students-count', onlineStudents.size);
+  socket.on('student-join', ({ userId, name, institution }) => {
+    if (userId && name && institution) {
+      onlineStudents.set(socket.id, { userId, name, institution });
+      socket.join(institution);
+      io.to(institution).emit('online-students-count', getOnlineCountForInstitution(institution));
     }
   });
 
   socket.on('disconnect', () => {
     if (onlineStudents.has(socket.id)) {
+      const student = onlineStudents.get(socket.id);
       onlineStudents.delete(socket.id);
-      io.emit('online-students-count', onlineStudents.size);
+      if (student.institution) {
+        io.to(student.institution).emit('online-students-count', getOnlineCountForInstitution(student.institution));
+      }
     }
   });
 
@@ -128,8 +149,9 @@ io.on('connection', (socket) => {
 
 });
 
-app.get('/api/stats/online', (req, res) => {
-  res.json({ success: true, count: onlineStudents.size });
+app.get('/api/stats/online', protect, (req, res) => {
+  const count = getOnlineCountForInstitution(req.user.institution);
+  res.json({ success: true, count });
 });
 
 // --- Routes ---

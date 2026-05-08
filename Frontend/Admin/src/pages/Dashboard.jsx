@@ -85,7 +85,7 @@ function writeCache(data) {
 // Dashboard component
 // ─────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
 
   // Always start fresh — don't trust stale cache with 0s
@@ -136,6 +136,11 @@ export default function Dashboard() {
 
     // ── Socket.IO: all subsequent updates are real-time ──────────
     socketRef.current = io(import.meta.env.VITE_API_URL);
+
+    // Join admin room for their institution to receive scoped socket events
+    if (user?.institution) {
+      socketRef.current.emit('admin-join', { institution: user.institution });
+    }
 
     // Live student count
     socketRef.current.on('online-students-count', (count) => {
