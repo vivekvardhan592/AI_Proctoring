@@ -48,7 +48,7 @@ const startExam = async (req, res, next) => {
     ]);
 
     const io = req.app.get("socketio");
-    io.emit("session-live-update", session);
+    io.to(req.user.institution).emit("session-live-update", session);
 
     // ⚡ Bust sessions cache so next load is fresh
     await clearCachePrefix('sessions', '/api/sessions', req);
@@ -121,7 +121,7 @@ const endExam = async (req, res, next) => {
     ]);
 
     const io = req.app.get("socketio");
-    io.emit("session-live-update", session);
+    io.to(req.user.institution).emit("session-live-update", session);
 
     // ⚡ Bust sessions cache
     await clearCachePrefix('sessions', '/api/sessions', req);
@@ -166,7 +166,7 @@ const terminateSession = async (req, res, next) => {
     await session.save();
 
     const io = req.app.get("socketio");
-    io.emit("session-live-update", session);
+    io.to(req.user.institution).emit("session-live-update", session);
     io.emit(`terminate-session-${session._id}`, {
       message: "Exam terminated by proctor.",
     });
@@ -245,8 +245,8 @@ const updateSessionProctoring = async (req, res, next) => {
         .populate("studentId", "name")
         .populate("examId", "title");
 
-      io.emit("violation-alert", populated);
-      io.emit("session-live-update", populated);
+      io.to(req.user.institution).emit("violation-alert", populated);
+      io.to(req.user.institution).emit("session-live-update", populated);
 
       if (session.violationsCount >= 10) {
         session.status = "terminated";
@@ -257,7 +257,7 @@ const updateSessionProctoring = async (req, res, next) => {
           message: "Auto terminated due to excessive violations",
         });
 
-        io.emit("session-live-update", session);
+        io.to(req.user.institution).emit("session-live-update", session);
 
         return res.json({
           success: true,
@@ -405,8 +405,8 @@ const logPreCheckViolation = async (req, res, next) => {
       .populate("studentId", "name")
       .populate("examId", "title");
 
-    io.emit("violation-alert", populated);
-    io.emit("session-live-update", populated);
+    io.to(req.user.institution).emit("violation-alert", populated);
+    io.to(req.user.institution).emit("session-live-update", populated);
 
     res.json({ success: true, message: "Pre-check violation logged" });
   } catch (error) {
