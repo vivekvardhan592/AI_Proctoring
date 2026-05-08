@@ -11,6 +11,7 @@ const {
     deleteViolationImage,
     logPreCheckViolation,
     getViolationImages,
+    getIntegrityTrend,
 } = require('../controllers/sessionController');
 const { protect, authorize } = require('../middleware/auth');
 const { routeCache } = require('../middleware/redisCache');
@@ -45,6 +46,9 @@ router.delete('/:sessionId/violation/:logIndex', authorize('admin'), deleteViola
 
 // GET  /api/sessions/violation-images — admin only, returns sessions with evidence images
 router.get('/violation-images', authorize('admin'), getViolationImages);
+
+// GET  /api/sessions/integrity-trend — admin only, 7-day aggregated trend
+router.get('/integrity-trend', authorize('admin'), getIntegrityTrend);
 
 // GET  /api/sessions                — admin gets all; student gets own (cached 20s)
 router.get('/', routeCache('sessions', 20), getSessions);

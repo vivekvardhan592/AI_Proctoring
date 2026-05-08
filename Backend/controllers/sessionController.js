@@ -439,6 +439,90 @@ const getViolationImages = async (req, res, next) => {
   }
 };
 
+// @desc    Get 7-day integrity trend (aggregated by day)
+// @route   GET /api/sessions/integrity-trend
+// @access  Private (Admin only)
+const getIntegrityTrend = async (req, res, next) => {
+  try {
+    // Get exams for this admin's institution
+    const exams = await Exam.find({ institution: req.user.institution }).select('_id').lean();
+    const examIds = exams.map(e => e._id);
+
+    // 7 days ago at midnight
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    // MongoDB aggregation: group sessions by day
+    const pipeline = [
+      {
+        $match: {
+          examId: { $in: examIds },
+          startTime: { $gte: sevenDaysAgo },
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$startTime" }
+          },
+          sessions: { $sum: 1 },
+          violations: { $sum: { $ifNull: ["$violationsCount", 0] } },
+          terminated: {
+            $sum: { $cond: [{ $eq: ["$status", "terminated"] }, 1, 0] }
+          },
+          completed: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
+          },
+        }
+      },
+      { $sort: { _id: 1 } }
+    ];
+
+    const aggregated = await ExamSession.aggregate(pipeline);
+
+    // Build a full 7-day array (fill in days with no data)
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0];
+      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      const found = aggregated.find(a => a._id === dayStr);
+
+      if (found) {
+        const integrity = Math.max(0, Math.min(100,
+          100 - (found.violations / found.sessions * 5)
+        ));
+        result.push({
+          date: label,
+          dateKey: dayStr,
+          integrity: parseFloat(integrity.toFixed(1)),
+          sessions: found.sessions,
+          violations: found.violations,
+          terminated: found.terminated,
+          completed: found.completed,
+        });
+      } else {
+        result.push({
+          date: label,
+          dateKey: dayStr,
+          integrity: null,
+          sessions: 0,
+          violations: 0,
+          terminated: 0,
+          completed: 0,
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   startExam,
   endExam,
@@ -450,4 +534,5 @@ module.exports = {
   deleteViolationImage,
   logPreCheckViolation,
   getViolationImages,
+  getIntegrityTrend,
 };

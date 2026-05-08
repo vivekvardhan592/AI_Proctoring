@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -92,6 +92,7 @@ export default function Dashboard() {
   const cached = readCache();
   const [data, setData] = useState(cached || { sessions: [], exams: [] });
   const [onlineCount, setOnlineCount] = useState(0);
+  const [trendData, setTrendData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const socketRef = useRef(null);
@@ -102,14 +103,15 @@ export default function Dashboard() {
     // ── One-time initial fetch to populate existing data ──────────
     const fetchData = async () => {
       try {
-        const [sRes, eRes, oRes] = await Promise.all([
+        const [sRes, eRes, oRes, tRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_URL}/api/sessions`,     { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${import.meta.env.VITE_API_URL}/api/exams`,        { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${import.meta.env.VITE_API_URL}/api/stats/online`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${import.meta.env.VITE_API_URL}/api/sessions/integrity-trend`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
-        const [sData, eData, oData] = await Promise.all([
-          sRes.json(), eRes.json(), oRes.json()
+        const [sData, eData, oData, tData] = await Promise.all([
+          sRes.json(), eRes.json(), oRes.json(), tRes.json()
         ]);
 
         if (sData.success && eData.success) {
@@ -121,6 +123,7 @@ export default function Dashboard() {
         }
 
         if (oData.success) setOnlineCount(oData.count);
+        if (tData.success) setTrendData(tData.data);
 
       } catch {
         setError('Network error — is the backend running?');
@@ -201,42 +204,6 @@ export default function Dashboard() {
     },
   ];
 
-  // ── Integrity Trend: compute daily data for last 7 days ────────
-  const trendData = useMemo(() => {
-    const days = [];
-    const now = new Date();
-
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dayStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
-      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-
-      // Sessions that started on this day
-      const daySessions = data.sessions.filter(s => {
-        if (!s.startTime) return false;
-        return new Date(s.startTime).toISOString().split('T')[0] === dayStr;
-      });
-
-      const totalSessions = daySessions.length;
-      const dayViolations = daySessions.reduce((acc, s) => acc + (s.violationsCount || 0), 0);
-
-      // Integrity = 100 - (violations per session * 5), clamped 0-100
-      const integrity = totalSessions > 0
-        ? Math.max(0, Math.min(100, 100 - (dayViolations / totalSessions * 5)))
-        : null; // null = no data for this day
-
-      days.push({
-        date: label,
-        integrity: integrity !== null ? parseFloat(integrity.toFixed(1)) : null,
-        sessions: totalSessions,
-        violations: dayViolations,
-      });
-    }
-
-    return days;
-  }, [data.sessions]);
-
   // Custom tooltip for the chart
   const ChartTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -258,6 +225,10 @@ export default function Dashboard() {
               <div className="flex justify-between gap-6">
                 <span className="text-slate-500 font-medium">Violations</span>
                 <span className={`font-bold ${d.violations > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{d.violations}</span>
+              </div>
+              <div className="flex justify-between gap-6">
+                <span className="text-slate-500 font-medium">Terminated</span>
+                <span className={`font-bold ${d.terminated > 0 ? 'text-red-500' : 'text-slate-400'}`}>{d.terminated}</span>
               </div>
             </>
           ) : (
