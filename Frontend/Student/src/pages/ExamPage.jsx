@@ -501,7 +501,7 @@ const getFaceDescriptor = async (imgSrc) => {
         // Continuous face identity check
         runContinuousFaceCheck();
 
-      }, 3000);
+      }, 1500); // ⚡ was 3000ms — now 1500ms for faster real-time detection
 
       return () => { if (aiInterval) clearInterval(aiInterval); };
     }, [isPreCheckDone]);
@@ -530,7 +530,7 @@ const getFaceDescriptor = async (imgSrc) => {
       if (!isPreCheckDone) return;
 
       let isDetecting = false;
-      const CONSECUTIVE_FRAMES_NEEDED = 3; // require 3 consecutive turned frames to start timer
+      const CONSECUTIVE_FRAMES_NEEDED = 2; // ⚡ was 3 — 2 consecutive frames to start timer
 
       headPoseIntervalRef.current = setInterval(async () => {
         if (isSubmittedRef.current || examCancelledRef.current) return;
@@ -574,13 +574,13 @@ const getFaceDescriptor = async (imgSrc) => {
 
         const turnDuration = (now - headTurnStartRef.current) / 1000;
 
-        if (turnDuration >= 5) { // raised from 3s — 5s sustained turn to flag
+        if (turnDuration >= 2.5) { // ⚡ was 5s — 2.5s sustained turn to flag
           const vType = "Head Turn Detected";
           const evidence = await takeSnapshot();
 
           const shouldLog =
             lastViolationLogRef.current.type !== vType ||
-            (now - lastViolationLogRef.current.timestamp) > 15000; // cooldown raised from 8s to 15s
+            (now - lastViolationLogRef.current.timestamp) > 10000; // ⚡ was 15s cooldown — now 10s
 
           if (!shouldLog) return;
 
@@ -610,7 +610,7 @@ const getFaceDescriptor = async (imgSrc) => {
             }, 1500);
           }
         }
-      }, 800); // slowed from 500ms to 800ms — reduces noisy jitter
+      }, 500); // ⚡ was 800ms — back to 500ms for snappier head pose response
 
       return () => {
         if (headPoseIntervalRef.current) clearInterval(headPoseIntervalRef.current);
@@ -637,13 +637,13 @@ const getFaceDescriptor = async (imgSrc) => {
 
         if (dist > 0.55) {
           impersonationBufferRef.current += 1;
-          if (impersonationBufferRef.current >= 3) {
+          if (impersonationBufferRef.current >= 2) { // ⚡ was 3 consecutive checks — now 2
             impersonationBufferRef.current = 0;
             const vType = "Impersonation Detected";
             const now = Date.now();
             const shouldLog =
               lastViolationLogRef.current.type !== vType ||
-              (now - lastViolationLogRef.current.timestamp) > 15000;
+              (now - lastViolationLogRef.current.timestamp) > 10000; // ⚡ was 15s cooldown — now 10s
 
             if (shouldLog) {
               lastViolationLogRef.current = { type: vType, timestamp: now };
@@ -685,7 +685,7 @@ const getFaceDescriptor = async (imgSrc) => {
       const now = Date.now();
       const shouldSnapshot = (vType) =>
         lastViolationLogRef.current.type !== vType ||
-        (now - lastViolationLogRef.current.timestamp) > 12000;
+        (now - lastViolationLogRef.current.timestamp) > 7000; // ⚡ was 12s cooldown — now 7s
 
       const triggerViolation = async (vType) => {
         const evidence = await takeSnapshot();
@@ -707,9 +707,9 @@ const getFaceDescriptor = async (imgSrc) => {
 
       if (personsPresence.length === 0) {
         missingFaceCountRef.current += 1;
-        if (missingFaceCountRef.current >= 3 && shouldSnapshot("No Face Detected")) {
+        if (missingFaceCountRef.current >= 2 && shouldSnapshot("No Face Detected")) { // ⚡ was 3 frames — now 2 (3s at 1.5s interval)
           triggerViolation("No Face Detected");
-        } else if (missingFaceCountRef.current >= 3) {
+        } else if (missingFaceCountRef.current >= 2) {
           setLastAIAction("No Face Detected");
           setShowWarning(true);
         }
@@ -720,8 +720,8 @@ const getFaceDescriptor = async (imgSrc) => {
         mobileBufferRef.current += 1;
         multiPersonBufferRef.current = 0;
         missingFaceCountRef.current = 0;
-        // Buffer of 2 frames avoids single-frame false positives
-        if (mobileBufferRef.current >= 2 && shouldSnapshot("Mobile Phone Detected")) {
+        // Buffer of 1 frame — fast single confirmation at 1.5s interval
+        if (mobileBufferRef.current >= 1 && shouldSnapshot("Mobile Phone Detected")) { // ⚡ was 2 frames
           triggerViolation("Mobile Phone Detected");
         }
 
@@ -729,7 +729,7 @@ const getFaceDescriptor = async (imgSrc) => {
         multiPersonBufferRef.current += 1;
         mobileBufferRef.current = 0;
         missingFaceCountRef.current = 0;
-        if (multiPersonBufferRef.current >= 2 && shouldSnapshot("Multiple Persons Detected")) {
+        if (multiPersonBufferRef.current >= 1 && shouldSnapshot("Multiple Persons Detected")) { // ⚡ was 2 frames — now 1
           triggerViolation("Multiple Persons Detected");
         }
 
@@ -792,7 +792,7 @@ const getFaceDescriptor = async (imgSrc) => {
 
           audioTimerRef.current = setTimeout(() => {
             triggerAudioViolation();
-          }, 3000); // ⏱ 3 sec
+          }, 1500); // ⚡ was 3000ms — 1.5s sustained speech to trigger
         }
       }
       } else {
@@ -814,7 +814,7 @@ const getFaceDescriptor = async (imgSrc) => {
     // Prevent spam (same as your other logic)
     const shouldLog =
       lastViolationLogRef.current.type !== vType ||
-      (now - lastViolationLogRef.current.timestamp) > 8000;
+      (now - lastViolationLogRef.current.timestamp) > 5000; // ⚡ was 8s cooldown — now 5s
 
     if (!shouldLog) return;
 
