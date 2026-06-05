@@ -17,4 +17,16 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['framer-motion', 'lucide-react', 'recharts'],
+          'vendor-socket': ['socket.io-client']
+        }
+      }
+    },
+    chunkSizeWarningLimit: 1000,
+  }
 });

@@ -9,7 +9,7 @@ const { clearCachePrefix } = require('../middleware/redisCache');
 const startExam = async (req, res, next) => {
   try {
     const { examId } = req.body;
-    const exam = await Exam.findById(examId);
+    const exam = await Exam.findById(examId).lean();
     if (!exam || !exam.isActive) {
       return res
         .status(404)
@@ -19,7 +19,7 @@ const startExam = async (req, res, next) => {
     const existingSession = await ExamSession.findOne({
       studentId: req.user._id,
       examId,
-    });
+    }).lean();
 
     if (existingSession) {
       if (existingSession.status === "ongoing") {
@@ -90,7 +90,7 @@ const endExam = async (req, res, next) => {
         });
     }
 
-    const exam = await Exam.findById(session.examId);
+    const exam = await Exam.findById(session.examId).lean();
     let score = 0;
 
     if (answers && Array.isArray(answers)) {
@@ -312,7 +312,8 @@ const getSessionById = async (req, res, next) => {
   try {
     const session = await ExamSession.findById(req.params.sessionId)
       .populate("studentId", "name email")
-      .populate("examId", "title duration totalMarks questions passingMarks");
+      .populate("examId", "title duration totalMarks questions passingMarks")
+      .lean();
 
     if (!session) {
       return res
@@ -337,7 +338,7 @@ const getSessionById = async (req, res, next) => {
 
 const clearAllViolationImages = async (req, res, next) => {
   try {
-    const exams = await Exam.find({ institution: req.user.institution }).select('_id');
+    const exams = await Exam.find({ institution: req.user.institution }).select('_id').lean();
     const examIds = exams.map(e => e._id);
 
     const result = await ExamSession.updateMany(

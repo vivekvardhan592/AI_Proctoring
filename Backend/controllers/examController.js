@@ -58,7 +58,7 @@ const getAllExams = async (req, res, next) => {
 // @access  Private (Admin & Student)
 const getExamById = async (req, res, next) => {
     try {
-        const exam = await Exam.findById(req.params.id).populate('createdBy', 'name email');
+        const exam = await Exam.findById(req.params.id).populate('createdBy', 'name email').lean();
 
         if (!exam) {
             return res.status(404).json({ success: false, message: 'Exam not found' });
